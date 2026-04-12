@@ -3,7 +3,6 @@
 import { usePathname } from 'next/navigation';
 import { WalletConnectButton } from '@/app/components/web3/ConnectButton';
 import { useUI } from '@/app/store/useUI';
-import { useChat } from '@/app/store/useChat';
 import { Menu, Search, Bell, Command } from 'lucide-react';
 import { Button } from '@/app/components/ui/button';
 import { ThemeToggle } from './ThemeToggle';

@@ -74,7 +74,7 @@ export function ChatInput({ onSend, isStreaming, onStop }: ChatInputProps) {
   };
 
   return (
-    <div className="border-t border-white/5 p-4 bg-[#0a0a0f]/80 backdrop-blur-xl">
+    <div className="relative border-t border-white/5 p-4 bg-[#0a0a0f]/80 backdrop-blur-xl">
       {/* Skills Panel */}
       {skillsPanelOpen && (
         <div className="absolute bottom-full left-4 mb-2 z-50">

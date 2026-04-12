@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
       user = newUser;
     }
     
-    const token = signToken({ userId: user.id, address: user.walletAddress });
+    const token = await signToken({ userId: user.id, walletAddress: user.walletAddress });
     
     return NextResponse.json({
       token,

@@ -1,12 +1,9 @@
-'use client';
-
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
-import { useEffect } from 'react';
 import './globals.css';
 import { Web3Provider } from '@/app/components/web3/Web3Provider';
 import { Toaster } from 'sonner';
-import { useUI } from '@/app/store/useUI';
+import { ThemeManager } from '@/app/components/ThemeManager';
 
 const inter = Inter({
   subsets: ['latin'],
@@ -18,16 +15,6 @@ export const metadata: Metadata = {
   description: 'Your decentralized autonomous AI agent with persistent memory, skills, scheduling, and 1000+ model connectors on Base blockchain.',
   icons: { icon: '/favicon.ico' },
 };
-
-function ThemeManager() {
-  const { appTheme } = useUI();
-  
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', appTheme);
-  }, [appTheme]);
-  
-  return null;
-}
 
 export default function RootLayout({
   children,
