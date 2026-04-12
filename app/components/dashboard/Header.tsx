@@ -5,8 +5,9 @@ import { WalletConnectButton } from '@/app/components/web3/ConnectButton';
 import { useUI } from '@/app/store/useUI';
 import { useChat } from '@/app/store/useChat';
 import { Menu, Search, Bell, Command } from 'lucide-react';
-import { ModelSelector } from '@/app/components/chat/ModelSelector';
 import { Button } from '@/app/components/ui/button';
+import { ThemeToggle } from './ThemeToggle';
+import { UserProfile } from './UserProfile';
 
 const pageTitles: Record<string, string> = {
   '/dashboard': 'Chat',
@@ -52,14 +53,17 @@ export function Header() {
           </kbd>
         </Button>
 
-        {/* Model selector */}
-        <ModelSelector />
-
         {/* Notifications */}
         <button className="p-2 rounded-lg hover:bg-white/10 text-white/40 hover:text-white transition-colors relative">
           <Bell className="w-5 h-5" />
           <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-blue-500 rounded-full" />
         </button>
+
+        {/* Theme Toggle */}
+        <ThemeToggle />
+
+        {/* User Profile */}
+        <UserProfile />
 
         {/* Wallet */}
         <WalletConnectButton />

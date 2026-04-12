@@ -23,6 +23,14 @@
   --destructive: #ef4444;
   --destructive-foreground: #ffffff;
   --radius: 0.75rem;
+  
+  /* Theme variables */
+  --theme-bg: #0a0a0f;
+  --theme-surface: rgba(255, 255, 255, 0.03);
+  --theme-border: rgba(255, 255, 255, 0.08);
+  --theme-shadow: 0 0 0;
+  --theme-text: #ffffff;
+  --theme-text-muted: rgba(255, 255, 255, 0.6);
 }
 
 * {
@@ -41,6 +49,99 @@ body {
   font-family: var(--font-inter), system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* Theme: Neumorphism */
+[data-theme="neumorphism"] {
+  --theme-bg: #e0e5ec;
+  --theme-surface: #e0e5ec;
+  --theme-border: #e0e5ec;
+  --theme-shadow: 
+    8px 8px 16px #b8bcc4, 
+    -8px -8px 16px #ffffff;
+  --theme-text: #2d3748;
+  --theme-text-muted: #718096;
+  --background: #e0e5ec;
+  --foreground: #2d3748;
+  --card: #e0e5ec;
+}
+
+[data-theme="neumorphism"] .glass,
+[data-theme="neumorphism"] .glass-strong {
+  background: #e0e5ec;
+  border: none;
+  box-shadow: 
+    6px 6px 12px #b8bcc4, 
+    -6px -6px 12px #ffffff;
+}
+
+/* Theme: Minimalist Air */
+[data-theme="minimalist"] {
+  --theme-bg: #fafafa;
+  --theme-surface: #ffffff;
+  --theme-border: #f3f4f6;
+  --theme-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  --theme-text: #111827;
+  --theme-text-muted: #9ca3af;
+  --background: #fafafa;
+  --foreground: #111827;
+  --card: #ffffff;
+}
+
+[data-theme="minimalist"] .glass,
+[data-theme="minimalist"] .glass-strong {
+  background: #ffffff;
+  border: 1px solid #f3f4f6;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+/* Theme: Bento Grids */
+[data-theme="bento"] {
+  --theme-bg: #0a0a0a;
+  --theme-surface: #141414;
+  --theme-border: #1f1f1f;
+  --theme-shadow: none;
+  --theme-text: #eeeeee;
+  --theme-text-muted: #666666;
+  --background: #0a0a0a;
+  --foreground: #eeeeee;
+  --card: #141414;
+}
+
+[data-theme="bento"] .glass,
+[data-theme="bento"] .glass-strong {
+  background: #141414;
+  border: 1px solid #1f1f1f;
+}
+
+/* Theme: Neo-Skeuomorphism */
+[data-theme="neoskeu"] {
+  --theme-bg: #1a1a2e;
+  --theme-surface: #16213e;
+  --theme-border: #0f3460;
+  --theme-shadow: 
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 4px 6px rgba(0, 0, 0, 0.3);
+  --theme-text: #e8e8e8;
+  --theme-text-muted: #a0a0a0;
+  --background: linear-gradient(180deg, #1a1a2e 0%, #0f0f1a 100%);
+  --foreground: #e8e8e8;
+}
+
+[data-theme="neoskeu"] .glass {
+  background: linear-gradient(180deg, #1f1f3a 0%, #16162d 100%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 4px 8px rgba(0, 0, 0, 0.3);
+}
+
+[data-theme="neoskeu"] .glass-strong {
+  background: linear-gradient(180deg, #24244a 0%, #1a1a35 100%);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 
+    inset 0 1px 0 rgba(255, 255, 255, 0.15),
+    0 6px 12px rgba(0, 0, 0, 0.4);
 }
 
 /* Custom scrollbar */

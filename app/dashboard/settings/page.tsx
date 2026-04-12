@@ -7,20 +7,17 @@ import { Input } from '@/app/components/ui/input';
 import { Switch } from '@/app/components/ui/switch';
 import { Badge } from '@/app/components/ui/badge';
 import { useUser } from '@/app/store/useUser';
-import { useChat } from '@/app/store/useChat';
 import { useUI } from '@/app/store/useUI';
-import { ALL_MODELS } from '@/lib/constants';
 import { toast } from 'sonner';
 import {
-  User, Cpu, Palette, Shield, Database, 
-  ExternalLink, Save, Check, CreditCard, Zap, Star, Crown, Rocket
+  User, Palette, Shield, Database, 
+  ExternalLink, Save, Check, CreditCard, Zap, Crown, Rocket
 } from 'lucide-react';
 import { PLANS } from '@/lib/integrations';
 
 export default function SettingsPage() {
-  const { walletAddress, displayName, preferredModel, token } = useUser();
-  const { setCurrentModel } = useChat();
-  const { theme, setTheme } = useUI();
+  const { walletAddress, displayName, token } = useUser();
+  const { theme, setTheme, userTier, messagesRemaining, messagesLimit } = useUI();
   
   const [name, setName] = useState(displayName || '');
   const [saving, setSaving] = useState(false);
@@ -47,6 +44,8 @@ export default function SettingsPage() {
     }
   };
 
+  const usagePercent = messagesLimit > 0 ? Math.min((messagesRemaining / messagesLimit) * 100, 100) : 100;
+
   return (
     <div className="p-6 max-w-3xl mx-auto">
       <div className="mb-8">
@@ -57,25 +56,25 @@ export default function SettingsPage() {
       </div>
 
       <div className="space-y-8">
-        {/* Subscription */}
+        {/* User Profile / Subscription */}
         <motion.section
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           className="p-6 rounded-2xl glass"
         >
           <div className="flex items-center gap-3 mb-6">
-            <div className="w-10 h-10 rounded-xl bg-green-600/20 border border-green-500/20 flex items-center justify-center">
-              <CreditCard className="w-5 h-5 text-green-400" />
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-cyan-500 flex items-center justify-center">
+              <User className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-white">Subscription</h2>
-              <p className="text-xs text-white/40">Manage your plan and billing</p>
+              <h2 className="text-lg font-semibold text-white">Your Plan</h2>
+              <p className="text-xs text-white/40">Manage subscription and usage</p>
             </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             {PLANS.map((plan) => {
-              const isCurrent = plan.id === 'free';
+              const isCurrent = plan.id === userTier;
               const Icon = plan.id === 'free' ? Check : plan.id === 'starter' ? Zap : plan.id === 'pro' ? Rocket : Crown;
               return (
                 <div
@@ -84,7 +83,7 @@ export default function SettingsPage() {
                     plan.popular
                       ? 'border-purple-500/50 bg-purple-500/5'
                       : isCurrent
-                      ? 'border-green-500/50 bg-green-500/5'
+                      ? 'border-blue-500/50 bg-blue-500/10'
                       : 'border-white/10 glass hover:border-white/20'
                   }`}
                 >
@@ -94,7 +93,7 @@ export default function SettingsPage() {
                     </Badge>
                   )}
                   {isCurrent && (
-                    <Badge className="absolute -top-2 -right-2 bg-green-500 text-[10px]">
+                    <Badge className="absolute -top-2 -right-2 bg-blue-500 text-[10px]">
                       Current
                     </Badge>
                   )}
@@ -114,35 +113,38 @@ export default function SettingsPage() {
                       </div>
                     ))}
                   </div>
-                  {!isCurrent && (
-                    <Button
-                      className="w-full mt-3"
-                      variant={plan.popular ? 'default' : 'outline'}
-                      size="sm"
-                    >
-                      {plan.trialDays ? 'Start Trial' : 'Upgrade'}
-                    </Button>
-                  )}
                 </div>
               );
             })}
           </div>
 
-          <div className="mt-6 flex items-center justify-between p-4 rounded-xl glass">
-            <div>
-              <p className="text-sm text-white">Current usage</p>
-              <p className="text-xs text-white/40">25 / 50 messages today</p>
+          <div className="mt-6 p-4 rounded-xl glass">
+            <div className="flex items-center justify-between mb-2">
+              <div>
+                <p className="text-sm text-white">Messages remaining today</p>
+                <p className="text-xs text-white/40">
+                  {messagesRemaining} / {messagesLimit > 0 ? messagesLimit : 'Unlimited'}
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-lg font-bold text-white">{Math.round(usagePercent)}%</p>
+                <p className="text-[10px] text-white/40">used</p>
+              </div>
             </div>
-            <div className="w-32 h-2 rounded-full bg-white/10 overflow-hidden">
-              <div className="h-full w-1/2 bg-blue-500 rounded-full" />
+            <div className="w-full h-2 rounded-full bg-white/10 overflow-hidden">
+              <div 
+                className="h-full bg-gradient-to-r from-blue-500 to-cyan-500 rounded-full transition-all" 
+                style={{ width: `${usagePercent}%` }}
+              />
             </div>
           </div>
         </motion.section>
 
-        {/* Profile */}
+        {/* Profile Settings */}
         <motion.section
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
           className="p-6 rounded-2xl glass"
         >
           <div className="flex items-center gap-3 mb-6">
@@ -177,44 +179,6 @@ export default function SettingsPage() {
                 <Badge variant="default" className="text-[10px]">Base</Badge>
               </div>
             </div>
-          </div>
-        </motion.section>
-
-        {/* Default Model */}
-        <motion.section
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          className="p-6 rounded-2xl glass"
-        >
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-10 h-10 rounded-xl bg-cyan-600/20 border border-cyan-500/20 flex items-center justify-center">
-              <Cpu className="w-5 h-5 text-cyan-400" />
-            </div>
-            <div>
-              <h2 className="text-lg font-semibold text-white">Default Model</h2>
-              <p className="text-xs text-white/40">Model used for new conversations</p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            {ALL_MODELS.filter(m => m.category === 'chat').slice(0, 10).map((model) => (
-              <button
-                key={model.modelId}
-                onClick={() => setCurrentModel(model.modelId)}
-                className={`flex items-center justify-between p-3 rounded-lg transition-all text-left ${
-                  preferredModel === model.modelId
-                    ? 'bg-blue-600/10 border border-blue-500/30'
-                    : 'bg-white/5 border border-white/10 hover:bg-white/10'
-                }`}
-              >
-                <div>
-                  <span className="text-sm text-white">{model.displayName}</span>
-                  <span className="text-[10px] text-white/30 block">{model.provider}</span>
-                </div>
-                {preferredModel === model.modelId && <Check className="w-4 h-4 text-blue-400" />}
-              </button>
-            ))}
           </div>
         </motion.section>
 

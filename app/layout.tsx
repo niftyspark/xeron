@@ -1,8 +1,12 @@
+'use client';
+
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
+import { useEffect } from 'react';
 import './globals.css';
 import { Web3Provider } from '@/app/components/web3/Web3Provider';
 import { Toaster } from 'sonner';
+import { useUI } from '@/app/store/useUI';
 
 const inter = Inter({
   subsets: ['latin'],
@@ -15,6 +19,16 @@ export const metadata: Metadata = {
   icons: { icon: '/favicon.ico' },
 };
 
+function ThemeManager() {
+  const { appTheme } = useUI();
+  
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', appTheme);
+  }, [appTheme]);
+  
+  return null;
+}
+
 export default function RootLayout({
   children,
 }: {
@@ -24,6 +38,7 @@ export default function RootLayout({
     <html lang="en" className="dark">
       <body className={`${inter.variable} font-sans antialiased bg-[#0a0a0f] text-white min-h-screen`}>
         <Web3Provider>
+          <ThemeManager />
           {children}
           <Toaster
             position="bottom-right"
