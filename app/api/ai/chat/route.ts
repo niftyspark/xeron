@@ -1,57 +1,45 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyToken, getTokenFromHeaders } from '@/lib/auth';
-import { db, schema } from '@/lib/db';
-import { eq } from 'drizzle-orm';
-import { decrypt } from '@/lib/encryption';
-import { getRelevantMemories, buildSystemPrompt } from '@/lib/ai';
 import { getSkillSystemPrompt } from '@/lib/skills';
 
 const API_URL = 'https://ai.api.4everland.org/api/v1/chat/completions';
 
 export async function POST(req: NextRequest) {
   try {
-    const token = getTokenFromHeaders(req.headers);
-    if (!token) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const payload = await verifyToken(token);
-    if (!payload) {
-      return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
-    }
-
     const body = await req.json();
     const { messages, model = 'anthropic/claude-opus-4.6', skills = [] } = body;
 
-    // Get user's API key
-    const user = await db.query.users.findFirst({
-      where: eq(schema.users.id, payload.userId),
-    });
-
-    if (!user?.apiKeyEncrypted) {
-      return NextResponse.json(
-        { error: 'Please configure your API key in Settings' },
-        { status: 400 }
-      );
-    }
-
-    const apiKey = decrypt(user.apiKeyEncrypted);
+    // Use server-side API key from environment variable
+    const apiKey = process.env.FOUR_EVER_LAND_API_KEY;
     if (!apiKey) {
       return NextResponse.json(
-        { error: 'Failed to decrypt API key' },
+        { error: 'AI API key is not configured on the server' },
         { status: 500 }
       );
     }
 
-    // Build enhanced system prompt with memories and skills
-    const memories = await getRelevantMemories(payload.userId, messages[messages.length - 1]?.content || '');
-    const systemPrompt = buildSystemPrompt(payload.userId, memories, []);
+    // Build system prompt with skills
+    const basePrompt = `You are XERON, a highly capable autonomous AI agent on the Base blockchain. You have persistent memory, can execute tasks autonomously, and learn from interactions.
+
+## Your Core Capabilities:
+- Autonomous task execution and multi-step reasoning
+- Persistent memory that persists across conversations
+- Access to 1000+ AI models through unified API
+- Web3 integration on Base blockchain
+- Self-learning from user feedback and patterns
+
+## Guidelines:
+- Be proactive and suggest actions when appropriate
+- Remember important details about the user
+- Break complex tasks into manageable steps
+- Show your reasoning process for complex queries
+- Be concise but thorough`;
+
     const skillPrompt = getSkillSystemPrompt(skills);
 
     const enhancedMessages = [
-      { role: 'system', content: systemPrompt + skillPrompt },
+      { role: 'system', content: basePrompt + skillPrompt },
       ...messages.filter((m: any) => m.role !== 'system'),
     ];
 
@@ -93,7 +81,6 @@ export async function POST(req: NextRequest) {
           return;
         }
 
-        const decoder = new TextDecoder();
         try {
           while (true) {
             const { done, value } = await reader.read();

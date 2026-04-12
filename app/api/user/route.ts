@@ -4,7 +4,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyToken, getTokenFromHeaders } from '@/lib/auth';
 import { db, schema } from '@/lib/db';
 import { eq } from 'drizzle-orm';
-import { encrypt } from '@/lib/encryption';
 
 export async function GET(req: NextRequest) {
   try {
@@ -26,7 +25,6 @@ export async function GET(req: NextRequest) {
       ensName: user.ensName,
       avatarUrl: user.avatarUrl,
       preferredModel: user.preferredModel,
-      hasApiKey: !!user.apiKeyEncrypted,
       settings: user.settings,
       createdAt: user.createdAt,
     });
@@ -48,7 +46,6 @@ export async function PATCH(req: NextRequest) {
     if (body.displayName) updates.displayName = body.displayName;
     if (body.preferredModel) updates.preferredModel = body.preferredModel;
     if (body.settings) updates.settings = body.settings;
-    if (body.apiKey) updates.apiKeyEncrypted = encrypt(body.apiKey);
     updates.updatedAt = new Date();
 
     await db.update(schema.users).set(updates).where(eq(schema.users.id, payload.userId));

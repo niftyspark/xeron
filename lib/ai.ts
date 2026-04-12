@@ -1,6 +1,4 @@
-import { encrypt, decrypt } from './encryption';
 import { db, schema } from './db';
-import { eq } from 'drizzle-orm';
 
 const API_URL = 'https://ai.api.4everland.org/api/v1/chat/completions';
 
@@ -17,13 +15,8 @@ export interface ChatOptions {
   messages: ChatMessage[];
 }
 
-async function getUserApiKey(userId: string): Promise<string | null> {
-  const user = await db.query.users.findFirst({
-    where: eq(schema.users.id, userId),
-  });
-  
-  if (!user?.apiKeyEncrypted) return null;
-  return decrypt(user.apiKeyEncrypted);
+function getApiKey(): string | null {
+  return process.env.FOUR_EVER_LAND_API_KEY || null;
 }
 
 export async function getRelevantMemories(userId: string, query: string, limit = 5) {
@@ -68,13 +61,12 @@ ${memoryContext}`;
 }
 
 export async function* streamChat(
-  userId: string,
   options: ChatOptions
 ): AsyncGenerator<string, void, unknown> {
-  const apiKey = await getUserApiKey(userId);
+  const apiKey = getApiKey();
   
   if (!apiKey) {
-    yield '⚠️ Please add your 4EverLand API key in Settings to use the AI.';
+    yield 'AI API key is not configured on the server.';
     return;
   }
 
@@ -167,7 +159,7 @@ Only extract information that is specific and actionable. Return empty array if 
     }
   ];
 
-  const apiKey = await getUserApiKey(userId);
+  const apiKey = getApiKey();
   if (!apiKey) return;
 
   try {

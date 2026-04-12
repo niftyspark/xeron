@@ -2,7 +2,6 @@
 
 import { useCallback, useRef, useState } from 'react';
 import { useChat } from '@/app/store/useChat';
-import { useUser } from '@/app/store/useUser';
 
 export function useStreaming() {
   const [isStreaming, setIsStreaming] = useState(false);
@@ -16,9 +15,6 @@ export function useStreaming() {
       messages: { role: string; content: string }[],
       model: string
     ) => {
-      const token = useUser.getState().token;
-      if (!token) return;
-
       abortControllerRef.current = new AbortController();
       setIsStreaming(true);
       setStreaming(true);
@@ -28,7 +24,6 @@ export function useStreaming() {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({ messages, model }),
           signal: abortControllerRef.current.signal,
