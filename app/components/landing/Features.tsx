@@ -1,7 +1,11 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { Brain, Zap, Calendar, Database, Shield, Cpu, MessageSquare, Layers } from 'lucide-react';
+import Link from 'next/link';
+import { Brain, Zap, Calendar, Database, Shield, Cpu, MessageSquare, Layers, Check, Rocket, Crown, Star } from 'lucide-react';
+import { PLANS } from '@/lib/integrations';
+import { Button } from '@/app/components/ui/button';
+import { Badge } from '@/app/components/ui/badge';
 
 const features = [
   {
@@ -115,6 +119,74 @@ export function Features() {
               <div className="text-sm text-white/40">{stat.label}</div>
             </div>
           ))}
+        </motion.div>
+
+        {/* Pricing Section */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.6, delay: 0.4 }}
+          className="mt-32"
+        >
+          <div className="text-center mb-12">
+            <h2 className="text-4xl md:text-5xl font-bold mb-4">
+              <span className="gradient-text">Simple Pricing</span>
+            </h2>
+            <p className="text-lg text-white/40 max-w-2xl mx-auto">
+              Start free and upgrade as you grow. All paid plans include a 7-day free trial.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {PLANS.map((plan) => {
+              const Icon = plan.id === 'free' ? Check : plan.id === 'starter' ? Zap : plan.id === 'pro' ? Rocket : Crown;
+              return (
+                <div
+                  key={plan.id}
+                  className={`relative p-6 rounded-2xl border transition-all ${
+                    plan.popular
+                      ? 'border-purple-500/50 bg-purple-500/5'
+                      : 'border-white/10 glass'
+                  }`}
+                >
+                  {plan.popular && (
+                    <Badge className="absolute -top-3 left-1/2 -translate-x-1/2 bg-purple-500">
+                      Most Popular
+                    </Badge>
+                  )}
+                  <div className="flex items-center gap-2 mb-3">
+                    <Icon className={`w-5 h-5 ${plan.popular ? 'text-purple-400' : 'text-white/60'}`} />
+                    <h3 className="text-lg font-semibold text-white">{plan.name}</h3>
+                  </div>
+                  <div className="mb-4">
+                    <span className="text-3xl font-bold text-white">${plan.price}</span>
+                    <span className="text-sm text-white/40">/{plan.period}</span>
+                  </div>
+                  <div className="space-y-2 mb-6">
+                    {plan.features.slice(0, 4).map((feature) => (
+                      <div key={feature} className="flex items-center gap-2 text-sm text-white/70">
+                        <Check className="w-4 h-4 text-green-400 flex-shrink-0" />
+                        {feature}
+                      </div>
+                    ))}
+                  </div>
+                  <Link href="/dashboard" className="block">
+                    <Button
+                      className="w-full"
+                      variant={plan.popular ? 'default' : plan.id === 'free' ? 'secondary' : 'outline'}
+                    >
+                      {plan.id === 'free' ? 'Get Started' : 'Start Trial'}
+                    </Button>
+                  </Link>
+                </div>
+              );
+            })}
+          </div>
+
+          <p className="text-center text-sm text-white/30 mt-6">
+            All plans require a Base wallet. No credit card required for free tier.
+          </p>
         </motion.div>
       </div>
     </section>

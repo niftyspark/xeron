@@ -13,8 +13,9 @@ import { ALL_MODELS } from '@/lib/constants';
 import { toast } from 'sonner';
 import {
   User, Cpu, Palette, Shield, Database, 
-  ExternalLink, Save, Check
+  ExternalLink, Save, Check, CreditCard, Zap, Star, Crown, Rocket
 } from 'lucide-react';
+import { PLANS } from '@/lib/integrations';
 
 export default function SettingsPage() {
   const { walletAddress, displayName, preferredModel, token } = useUser();
@@ -56,6 +57,88 @@ export default function SettingsPage() {
       </div>
 
       <div className="space-y-8">
+        {/* Subscription */}
+        <motion.section
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="p-6 rounded-2xl glass"
+        >
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-10 h-10 rounded-xl bg-green-600/20 border border-green-500/20 flex items-center justify-center">
+              <CreditCard className="w-5 h-5 text-green-400" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-white">Subscription</h2>
+              <p className="text-xs text-white/40">Manage your plan and billing</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            {PLANS.map((plan) => {
+              const isCurrent = plan.id === 'free';
+              const Icon = plan.id === 'free' ? Check : plan.id === 'starter' ? Zap : plan.id === 'pro' ? Rocket : Crown;
+              return (
+                <div
+                  key={plan.id}
+                  className={`relative p-4 rounded-xl border transition-all ${
+                    plan.popular
+                      ? 'border-purple-500/50 bg-purple-500/5'
+                      : isCurrent
+                      ? 'border-green-500/50 bg-green-500/5'
+                      : 'border-white/10 glass hover:border-white/20'
+                  }`}
+                >
+                  {plan.popular && (
+                    <Badge className="absolute -top-2 -right-2 bg-purple-500 text-[10px]">
+                      Popular
+                    </Badge>
+                  )}
+                  {isCurrent && (
+                    <Badge className="absolute -top-2 -right-2 bg-green-500 text-[10px]">
+                      Current
+                    </Badge>
+                  )}
+                  <div className="flex items-center gap-2 mb-2">
+                    <Icon className={`w-4 h-4 ${plan.popular ? 'text-purple-400' : 'text-white/60'}`} />
+                    <span className="text-sm font-medium text-white">{plan.name}</span>
+                  </div>
+                  <div className="mb-3">
+                    <span className="text-xl font-bold text-white">${plan.price}</span>
+                    <span className="text-xs text-white/40">/{plan.period}</span>
+                  </div>
+                  <div className="space-y-1">
+                    {plan.features.slice(0, 3).map((feature) => (
+                      <div key={feature} className="flex items-center gap-1.5 text-xs text-white/50">
+                        <Check className="w-3 h-3 text-green-400" />
+                        {feature}
+                      </div>
+                    ))}
+                  </div>
+                  {!isCurrent && (
+                    <Button
+                      className="w-full mt-3"
+                      variant={plan.popular ? 'default' : 'outline'}
+                      size="sm"
+                    >
+                      {plan.trialDays ? 'Start Trial' : 'Upgrade'}
+                    </Button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="mt-6 flex items-center justify-between p-4 rounded-xl glass">
+            <div>
+              <p className="text-sm text-white">Current usage</p>
+              <p className="text-xs text-white/40">25 / 50 messages today</p>
+            </div>
+            <div className="w-32 h-2 rounded-full bg-white/10 overflow-hidden">
+              <div className="h-full w-1/2 bg-blue-500 rounded-full" />
+            </div>
+          </div>
+        </motion.section>
+
         {/* Profile */}
         <motion.section
           initial={{ opacity: 0, y: 20 }}

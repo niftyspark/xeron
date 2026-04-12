@@ -154,5 +154,51 @@ export type TaskLog = typeof taskLogs.$inferSelect;
 export type NewTaskLog = typeof taskLogs.$inferInsert;
 export type LearningLog = typeof learningLogs.$inferSelect;
 export type NewLearningLog = typeof learningLogs.$inferInsert;
+export const subscriptions = pgTable('subscriptions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  planId: varchar('plan_id', { length: 20 }).notNull().unique(),
+  name: varchar('name', { length: 50 }).notNull(),
+  price: integer('price').notNull(),
+  period: varchar('period', { length: 20 }).notNull(),
+  tier: varchar('tier', { length: 20 }).notNull(),
+  trialDays: integer('trial_days'),
+  features: jsonb('features').notNull(),
+  limits: jsonb('limits').notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+export const userSubscriptions = pgTable('user_subscriptions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  subscriptionId: uuid('subscription_id').references(() => subscriptions.id).notNull(),
+  status: varchar('status', { length: 20 }).notNull().default('active'),
+  trialStart: timestamp('trial_start'),
+  trialEnd: timestamp('trial_end'),
+  currentPeriodStart: timestamp('current_period_start').notNull(),
+  currentPeriodEnd: timestamp('current_period_end').notNull(),
+  cancelAtPeriodEnd: boolean('cancel_at_period_end').default(false),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
+export const userIntegrations = pgTable('user_integrations', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  integrationId: varchar('integration_id', { length: 50 }).notNull(),
+  accessToken: text('access_token'),
+  refreshToken: text('refresh_token'),
+  tokenExpiresAt: timestamp('token_expires_at'),
+  config: jsonb('config').default({}),
+  isActive: boolean('is_active').default(true),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
 export type Model = typeof models.$inferSelect;
 export type NewModel = typeof models.$inferInsert;
+export type Subscription = typeof subscriptions.$inferSelect;
+export type NewSubscription = typeof subscriptions.$inferInsert;
+export type UserSubscription = typeof userSubscriptions.$inferSelect;
+export type NewUserSubscription = typeof userSubscriptions.$inferInsert;
+export type UserIntegration = typeof userIntegrations.$inferSelect;
+export type NewUserIntegration = typeof userIntegrations.$inferInsert;
