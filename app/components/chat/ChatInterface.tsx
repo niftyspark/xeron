@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { useChat, ChatMessage } from '@/app/store/useChat';
+import { useChat, ChatMessage, Conversation } from '@/app/store/useChat';
 import { useUser } from '@/app/store/useUser';
 import { useStreaming } from '@/app/hooks/useStreaming';
 import { useSkills } from '@/app/store/useSkills';
@@ -13,7 +13,7 @@ import { Sparkles } from 'lucide-react';
 
 export function ChatInterface() {
   const {
-    conversations, activeConversationId, addMessage,
+    conversations, activeConversationId, addMessage, addConversation,
     setActiveConversation, currentModel,
     createConversation, saveMessage, loadConversations, loadMessages,
     conversationsLoaded,
@@ -44,7 +44,9 @@ export function ChatInterface() {
   // Load conversations from DB on mount when authenticated
   useEffect(() => {
     if (isAuthenticated && !conversationsLoaded) {
-      loadConversations();
+      loadConversations().catch(() => {
+        // DB might not be available, that's ok - chat still works locally
+      });
     }
   }, [isAuthenticated, conversationsLoaded, loadConversations]);
 
@@ -61,16 +63,29 @@ export function ChatInterface() {
 
     let convId = activeConversationId;
 
-    // Create new conversation via API if none active
+    // Create new conversation if none active
     if (!convId) {
       const title = content.slice(0, 50) + (content.length > 50 ? '...' : '');
+      // Try DB first, fall back to local-only
       const newConv = await createConversation(title, currentModel);
-      if (!newConv) {
-        console.error('Failed to create conversation');
-        return;
+      if (newConv) {
+        convId = newConv.id;
+        loadedConvRef.current.add(convId);
+      } else {
+        // Fallback: create local-only conversation
+        convId = crypto.randomUUID();
+        const localConv: Conversation = {
+          id: convId,
+          title,
+          model: currentModel,
+          messages: [],
+          isPinned: false,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        addConversation(localConv);
+        loadedConvRef.current.add(convId);
       }
-      convId = newConv.id;
-      loadedConvRef.current.add(convId);
     }
 
     // Decrement daily message counter
@@ -106,7 +121,7 @@ export function ChatInterface() {
     })).filter(m => m.content) || [];
 
     // Stream response
-    await startStream(convId, assistantMsg.id, allMessages, currentModel);
+    await startStream(convId, assistantMsg.id, allMessages, currentModel, enabledSkills);
 
     // After streaming completes, save the assistant message to DB
     const updatedConv = useChat.getState().conversations.find(c => c.id === convId);

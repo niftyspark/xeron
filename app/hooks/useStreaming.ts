@@ -13,7 +13,8 @@ export function useStreaming() {
       conversationId: string,
       messageId: string,
       messages: { role: string; content: string }[],
-      model: string
+      model: string,
+      skills?: string[]
     ) => {
       abortControllerRef.current = new AbortController();
       setIsStreaming(true);
@@ -25,7 +26,7 @@ export function useStreaming() {
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ messages, model }),
+          body: JSON.stringify({ messages, model, skills: skills || [] }),
           signal: abortControllerRef.current.signal,
         });
 
