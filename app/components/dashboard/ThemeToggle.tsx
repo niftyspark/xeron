@@ -34,8 +34,12 @@ const themeConfig: Record<AppTheme, { name: string; icon: React.ElementType; col
 
 export function ThemeToggle() {
   const [open, setOpen] = useState(false);
-  const { appTheme } = useUI();
-  const current = themeConfig[appTheme];
+  const { appTheme, setAppTheme } = useUI();
+
+  // Fallback if persisted theme no longer exists (e.g. old glassmorphism/bento/etc)
+  const validTheme = themeConfig[appTheme] ? appTheme : 'dark';
+  if (validTheme !== appTheme) setAppTheme(validTheme);
+  const current = themeConfig[validTheme];
 
   return (
     <div className="relative">
