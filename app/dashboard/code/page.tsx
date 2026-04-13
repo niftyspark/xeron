@@ -102,6 +102,9 @@ export default function CodeAgentPage() {
     setFwOpen(false);
   }, []);
 
+  // Track which files the AI is currently writing (shown live in chat)
+  const [activeWritingFiles, setActiveWritingFiles] = useState<string[]>([]);
+
   // Send message to AI
   const handleSend = useCallback(async (text?: string) => {
     const prompt = (text || input).trim();
@@ -113,6 +116,7 @@ export default function CodeAgentPage() {
 
     setMessages(prev => [...prev, userMsg, assistantMsg]);
     setIsGenerating(true);
+    setActiveWritingFiles([]);
 
     try {
       const action = mode === 'plan' ? 'explain' : 'generate';
@@ -123,7 +127,7 @@ export default function CodeAgentPage() {
       });
 
       if (!res.ok) {
-        setMessages(prev => prev.map(m => m.id === assistantMsg.id ? { ...m, content: 'Error: Failed to get response', isStreaming: false } : m));
+        setMessages(prev => prev.map(m => m.id === assistantMsg.id ? { ...m, content: 'Failed to get response from AI.', isStreaming: false } : m));
         setIsGenerating(false);
         return;
       }
@@ -132,6 +136,7 @@ export default function CodeAgentPage() {
       const decoder = new TextDecoder();
       let full = '';
       let buffer = '';
+      let lastExtracted: Record<string, string> = {};
 
       while (reader) {
         const { done, value } = await reader.read();
@@ -149,25 +154,68 @@ export default function CodeAgentPage() {
             const chunk = parsed.choices?.[0]?.delta?.content;
             if (chunk) {
               full += chunk;
-              setMessages(prev => prev.map(m => m.id === assistantMsg.id ? { ...m, content: full } : m));
+
+              // In agent mode: continuously extract code blocks and write to IDE live
+              if (mode === 'agent') {
+                const extracted = parseCodeBlocks(full);
+                if (extracted) {
+                  // Write completed files to the editor in real-time
+                  const newFileNames = Object.keys(extracted);
+                  setActiveWritingFiles(newFileNames);
+                  setFiles(prev => ({ ...prev, ...extracted }));
+                  if (newFileNames.length > 0) {
+                    setActiveFile(newFileNames[newFileNames.length - 1]);
+                  }
+                  lastExtracted = extracted;
+
+                  // Chat only shows explanation text (strip code blocks)
+                  const explanation = full.replace(/```\S+\n[\s\S]*?```/g, '').trim();
+                  setMessages(prev => prev.map(m => m.id === assistantMsg.id
+                    ? { ...m, content: explanation, files: extracted }
+                    : m
+                  ));
+                } else {
+                  // No code blocks yet, show explanation so far (strip partial blocks)
+                  const explanation = full.replace(/```\S+\n[\s\S]*$/g, '').replace(/```\S+\n[\s\S]*?```/g, '').trim();
+                  setMessages(prev => prev.map(m => m.id === assistantMsg.id
+                    ? { ...m, content: explanation }
+                    : m
+                  ));
+                }
+              } else {
+                // Plan mode: show full text in chat
+                setMessages(prev => prev.map(m => m.id === assistantMsg.id
+                  ? { ...m, content: full }
+                  : m
+                ));
+              }
             }
           } catch {}
         }
       }
 
-      // Extract code blocks and update files
-      const extracted = parseCodeBlocks(full);
-      if (extracted && mode === 'agent') {
-        const newFiles = { ...files, ...extracted };
-        setFiles(newFiles);
-        setActiveFile(Object.keys(extracted)[0]);
-        setMessages(prev => prev.map(m => m.id === assistantMsg.id ? { ...m, content: full, files: extracted, isStreaming: false } : m));
+      // Finalize
+      const finalExtracted = parseCodeBlocks(full);
+      const explanation = full.replace(/```\S+\n[\s\S]*?```/g, '').trim();
+
+      if (finalExtracted && mode === 'agent') {
+        setFiles(prev => ({ ...prev, ...finalExtracted }));
+        setActiveFile(Object.keys(finalExtracted)[0]);
+        setMessages(prev => prev.map(m => m.id === assistantMsg.id
+          ? { ...m, content: explanation || 'Done! Files have been created.', files: finalExtracted, isStreaming: false }
+          : m
+        ));
         setRightTab('preview');
       } else {
-        setMessages(prev => prev.map(m => m.id === assistantMsg.id ? { ...m, isStreaming: false } : m));
+        setMessages(prev => prev.map(m => m.id === assistantMsg.id
+          ? { ...m, content: explanation || full, isStreaming: false }
+          : m
+        ));
       }
+      setActiveWritingFiles([]);
     } catch (err) {
-      setMessages(prev => prev.map(m => m.id === assistantMsg.id ? { ...m, content: 'Error: Connection failed', isStreaming: false } : m));
+      setMessages(prev => prev.map(m => m.id === assistantMsg.id ? { ...m, content: 'Connection failed.', isStreaming: false } : m));
+      setActiveWritingFiles([]);
     } finally {
       setIsGenerating(false);
     }
@@ -176,9 +224,6 @@ export default function CodeAgentPage() {
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
   };
-
-  // Remove code blocks from display text, show only explanation
-  const getDisplayText = (content: string) => content.replace(/```\S+\n[\s\S]*?```/g, '').trim();
 
   return (
     <div className="flex h-[calc(100vh-4rem)] overflow-hidden">
@@ -297,7 +342,7 @@ export default function CodeAgentPage() {
                       ? 'bg-blue-600/20 text-white/90 border border-blue-500/20'
                       : 'bg-white/[0.04] text-white/80 border border-white/5'
                   }`}>
-                    {msg.isStreaming && !msg.content ? (
+                    {msg.isStreaming && !msg.content && activeWritingFiles.length === 0 ? (
                       <div className="flex items-center gap-1.5">
                         <div className="flex gap-1">
                           <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-bounce" style={{ animationDelay: '0ms' }} />
@@ -306,15 +351,31 @@ export default function CodeAgentPage() {
                         </div>
                         <span className="text-xs text-white/30">Thinking...</span>
                       </div>
-                    ) : (
-                      <div className="whitespace-pre-wrap text-xs">{getDisplayText(msg.content)}</div>
+                    ) : msg.content ? (
+                      <div className="whitespace-pre-wrap text-xs">{msg.content}</div>
+                    ) : null}
+
+                    {/* Live file writing indicator while streaming */}
+                    {msg.isStreaming && activeWritingFiles.length > 0 && (
+                      <div className="mt-2 space-y-1">
+                        <div className="flex items-center gap-1.5 mb-1">
+                          <Loader2 className="w-3 h-3 text-blue-400 animate-spin" />
+                          <span className="text-[11px] text-blue-400 font-medium">Writing files...</span>
+                        </div>
+                        {activeWritingFiles.map(name => (
+                          <div key={name} className="flex items-center gap-2 px-2 py-1 rounded-md bg-blue-500/10 border border-blue-500/20 text-blue-300 text-[11px]">
+                            <FileCode2 className="w-3 h-3 shrink-0 animate-pulse" />
+                            {name}
+                          </div>
+                        ))}
+                      </div>
                     )}
                   </div>
 
-                  {/* File changes indicator */}
-                  {msg.files && Object.keys(msg.files).length > 0 && (
+                  {/* Completed file changes */}
+                  {!msg.isStreaming && msg.files && Object.keys(msg.files).length > 0 && (
                     <div className="mt-2 space-y-1">
-                      <p className="text-[10px] text-white/30">
+                      <p className="text-[10px] text-green-400/60">
                         {Object.keys(msg.files).length} file{Object.keys(msg.files).length > 1 ? 's' : ''} created
                       </p>
                       {Object.keys(msg.files).map(name => (
