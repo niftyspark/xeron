@@ -63,9 +63,28 @@ export async function DELETE(req: NextRequest) {
     const payload = await verifyToken(token);
     if (!payload) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
 
+    // Check for clearAll in request body
+    try {
+      const body = await req.json();
+      if (body?.clearAll) {
+        await db
+          .update(schema.memories)
+          .set({ isActive: false })
+          .where(
+            and(
+              eq(schema.memories.userId, payload.userId),
+              eq(schema.memories.isActive, true)
+            )
+          );
+        return NextResponse.json({ success: true, cleared: true });
+      }
+    } catch {
+      // No body or invalid JSON, fall through to single-delete by id
+    }
+
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');
-    if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
+    if (!id) return NextResponse.json({ error: 'Missing id or clearAll' }, { status: 400 });
 
     await db
       .update(schema.memories)

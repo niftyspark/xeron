@@ -5,25 +5,36 @@ import { motion } from 'framer-motion';
 import { Button } from '@/app/components/ui/button';
 import { Input } from '@/app/components/ui/input';
 import { WalletConnectButton } from '@/app/components/web3/ConnectButton';
+import { useUser } from '@/app/store/useUser';
 import { Sparkles, Mail, Chrome, ArrowRight, UserPlus } from 'lucide-react';
 
 export function AuthScreen() {
   const [mode, setMode] = useState<'landing' | 'login' | 'signup'>('landing');
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const { setUser } = useUser();
 
   const handleGuestLogin = async () => {
     setLoading(true);
+    setError('');
     try {
       const res = await fetch('/api/auth/guest', { method: 'POST' });
       if (res.ok) {
         const { token, user } = await res.json();
+        setUser({
+          userId: user.id,
+          walletAddress: user.walletAddress,
+          displayName: user.displayName,
+          token,
+        });
         localStorage.setItem('xeron_token', token);
         localStorage.setItem('xeron_user', JSON.stringify(user));
         window.location.href = '/dashboard';
       }
     } catch (e) {
       console.error(e);
+      setError('Failed to create guest account');
     } finally {
       setLoading(false);
     }
@@ -32,24 +43,32 @@ export function AuthScreen() {
   const handleEmailAuth = async (isSignup: boolean) => {
     if (!email) return;
     setLoading(true);
+    setError('');
     try {
       const res = await fetch('/api/auth/email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, isSignup }),
       });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.magicLinkSent) {
-          alert('Magic link sent to your email!');
-        } else if (data.token) {
-          localStorage.setItem('xeron_token', data.token);
-          localStorage.setItem('xeron_user', JSON.stringify(data.user));
-          window.location.href = '/dashboard';
-        }
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || 'Authentication failed');
+        return;
+      }
+      if (data.token) {
+        setUser({
+          userId: data.user.id,
+          walletAddress: data.user.walletAddress,
+          displayName: data.user.displayName,
+          token: data.token,
+        });
+        localStorage.setItem('xeron_token', data.token);
+        localStorage.setItem('xeron_user', JSON.stringify(data.user));
+        window.location.href = '/dashboard';
       }
     } catch (e) {
       console.error(e);
+      setError('Authentication failed. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -159,10 +178,10 @@ export function AuthScreen() {
         className="relative z-10 w-full max-w-md px-4"
       >
         <button
-          onClick={() => setMode('landing')}
+          onClick={() => { setMode('landing'); setError(''); }}
           className="mb-8 text-white/40 hover:text-white text-sm"
         >
-          ← Back
+          &larr; Back
         </button>
 
         <div className="p-8 rounded-2xl glass">
@@ -189,13 +208,26 @@ export function AuthScreen() {
               />
             </div>
 
+            {error && (
+              <p className="text-sm text-red-400 text-center">{error}</p>
+            )}
+
             <Button
               className="w-full h-12"
               onClick={() => handleEmailAuth(mode === 'signup')}
               disabled={loading || !email}
             >
-              {loading ? 'Sending...' : 'Continue with Email'}
+              {loading ? 'Authenticating...' : mode === 'signup' ? 'Create Account' : 'Sign In'}
             </Button>
+
+            <div className="text-center">
+              <button
+                onClick={() => { setMode(mode === 'login' ? 'signup' : 'login'); setError(''); }}
+                className="text-xs text-white/40 hover:text-white/60"
+              >
+                {mode === 'login' ? "Don't have an account? Sign up" : 'Already have an account? Sign in'}
+              </button>
+            </div>
 
             <div className="flex items-center gap-3 my-4">
               <div className="flex-1 h-px bg-white/10" />

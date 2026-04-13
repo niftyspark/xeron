@@ -1,69 +1,108 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Badge } from '@/app/components/ui/badge';
-import { Button } from '@/app/components/ui/button';
-import { BookOpen, ThumbsUp, ThumbsDown, Lightbulb, MessageSquare, Repeat, Zap } from 'lucide-react';
+import { BookOpen, ThumbsUp, ThumbsDown, Lightbulb, MessageSquare, Repeat, Zap, Loader2 } from 'lucide-react';
 
-// Mock learning data for demonstration
-const learningEntries = [
-  {
-    id: '1',
-    trigger: 'correction',
-    lesson: 'User prefers TypeScript with strict mode and explicit return types',
-    appliedTo: 'Code generation',
-    confidence: 0.9,
-    createdAt: '2024-03-15T10:30:00Z',
-  },
-  {
-    id: '2',
-    trigger: 'pattern',
-    lesson: 'User often works on Next.js 14 App Router projects with Tailwind CSS',
-    appliedTo: 'Context awareness',
-    confidence: 0.85,
-    createdAt: '2024-03-14T14:20:00Z',
-  },
-  {
-    id: '3',
-    trigger: 'feedback',
-    lesson: 'User prefers concise explanations with code examples over lengthy text',
-    appliedTo: 'Response formatting',
-    confidence: 0.8,
-    createdAt: '2024-03-13T09:15:00Z',
-  },
-  {
-    id: '4',
-    trigger: 'auto',
-    lesson: 'User is interested in DeFi protocols on Base chain, specifically AMMs and lending',
-    appliedTo: 'Topic specialization',
-    confidence: 0.7,
-    createdAt: '2024-03-12T16:45:00Z',
-  },
-  {
-    id: '5',
-    trigger: 'correction',
-    lesson: 'When writing Solidity, always include NatSpec comments and use OpenZeppelin contracts',
-    appliedTo: 'Smart contract generation',
-    confidence: 0.95,
-    createdAt: '2024-03-11T11:00:00Z',
-  },
-];
+interface LearningEntry {
+  id: string;
+  userId: string;
+  trigger: string;
+  lesson: string;
+  appliedTo: string | null;
+  confidence: number;
+  createdAt: string;
+}
 
 const triggerIcons: Record<string, any> = {
   feedback: MessageSquare,
+  user_feedback: MessageSquare,
   correction: Repeat,
   pattern: Lightbulb,
   auto: Zap,
+  manual: BookOpen,
 };
 
 const triggerColors: Record<string, string> = {
   feedback: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
+  user_feedback: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
   correction: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
   pattern: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
   auto: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
+  manual: 'bg-gray-500/20 text-gray-400 border-gray-500/30',
 };
 
 export default function LearningPage() {
+  const [entries, setEntries] = useState<LearningEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function fetchLearningLogs() {
+      try {
+        const token = localStorage.getItem('auth_token');
+        const res = await fetch('/api/learning', {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+        if (!res.ok) {
+          throw new Error('Failed to fetch learning logs');
+        }
+        const data = await res.json();
+        setEntries(data);
+      } catch (err: any) {
+        setError(err.message || 'Failed to load learning logs');
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchLearningLogs();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="p-6 max-w-4xl mx-auto flex items-center justify-center min-h-[400px]">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="w-8 h-8 text-blue-400 animate-spin" />
+          <p className="text-sm text-white/40">Loading learning logs...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-6 max-w-4xl mx-auto flex items-center justify-center min-h-[400px]">
+        <div className="flex flex-col items-center gap-3 text-center">
+          <BookOpen className="w-8 h-8 text-red-400" />
+          <p className="text-sm text-red-400">{error}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (entries.length === 0) {
+    return (
+      <div className="p-6 max-w-4xl mx-auto">
+        <div className="mb-6">
+          <h1 className="text-2xl font-bold text-white">Learning Log</h1>
+          <p className="text-sm text-white/40 mt-1">
+            Track what XERON has learned from your interactions
+          </p>
+        </div>
+        <div className="flex flex-col items-center justify-center min-h-[300px] gap-3">
+          <BookOpen className="w-10 h-10 text-white/20" />
+          <p className="text-sm text-white/40">No learning entries yet.</p>
+          <p className="text-xs text-white/25">
+            XERON will learn from your interactions and feedback over time.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="p-6 max-w-4xl mx-auto">
       <div className="mb-6">
@@ -76,10 +115,10 @@ export default function LearningPage() {
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
         {[
-          { label: 'Total Lessons', value: learningEntries.length },
-          { label: 'High Confidence', value: learningEntries.filter(l => l.confidence > 0.8).length },
-          { label: 'From Corrections', value: learningEntries.filter(l => l.trigger === 'correction').length },
-          { label: 'Auto-detected', value: learningEntries.filter(l => l.trigger === 'auto').length },
+          { label: 'Total Lessons', value: entries.length },
+          { label: 'High Confidence', value: entries.filter(l => l.confidence > 0.8).length },
+          { label: 'From Corrections', value: entries.filter(l => l.trigger === 'correction').length },
+          { label: 'Auto-detected', value: entries.filter(l => l.trigger === 'auto').length },
         ].map((stat) => (
           <div key={stat.label} className="p-4 rounded-xl glass text-center">
             <div className="text-2xl font-bold gradient-text">{stat.value}</div>
@@ -93,7 +132,7 @@ export default function LearningPage() {
         <div className="absolute left-6 top-0 bottom-0 w-px bg-white/5" />
 
         <div className="space-y-4">
-          {learningEntries.map((entry, i) => {
+          {entries.map((entry, i) => {
             const TriggerIcon = triggerIcons[entry.trigger] || Lightbulb;
 
             return (
@@ -104,7 +143,7 @@ export default function LearningPage() {
                 transition={{ delay: i * 0.1 }}
                 className="relative flex gap-4 pl-2"
               >
-                <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 z-10 border ${triggerColors[entry.trigger]}`}>
+                <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 z-10 border ${triggerColors[entry.trigger] || 'bg-gray-500/20 text-gray-400 border-gray-500/30'}`}>
                   <TriggerIcon className="w-4 h-4" />
                 </div>
 
@@ -113,7 +152,7 @@ export default function LearningPage() {
                     <div>
                       <p className="text-sm text-white/80">{entry.lesson}</p>
                       <div className="flex items-center gap-2 mt-2">
-                        <Badge className={triggerColors[entry.trigger]}>{entry.trigger}</Badge>
+                        <Badge className={triggerColors[entry.trigger] || 'bg-gray-500/20 text-gray-400 border-gray-500/30'}>{entry.trigger}</Badge>
                         {entry.appliedTo && (
                           <span className="text-[10px] text-white/30">
                             Applied to: {entry.appliedTo}

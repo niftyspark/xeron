@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useUI } from '@/app/store/useUI';
 import { useRouter } from 'next/navigation';
 import {
@@ -24,10 +24,11 @@ export function CommandPalette() {
   const { commandPaletteOpen, setCommandPaletteOpen } = useUI();
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
-  const [search, setSearch] = ['' as string, (() => {}) as any];
+  const [search, setSearch] = useState('');
 
   useEffect(() => {
     if (commandPaletteOpen) {
+      setSearch('');
       inputRef.current?.focus();
     }
   }, [commandPaletteOpen]);
@@ -35,7 +36,7 @@ export function CommandPalette() {
   if (!commandPaletteOpen) return null;
 
   const filtered = commands.filter((cmd) =>
-    cmd.label.toLowerCase().includes(search.toLowerCase?.() || '')
+    cmd.label.toLowerCase().includes(search.toLowerCase())
   );
 
   return (
@@ -50,6 +51,7 @@ export function CommandPalette() {
           <input
             ref={inputRef}
             type="text"
+            value={search}
             placeholder="Search commands..."
             className="flex-1 bg-transparent text-white placeholder:text-white/30 outline-none text-sm"
             onChange={(e) => setSearch(e.target.value)}
@@ -60,6 +62,11 @@ export function CommandPalette() {
         </div>
 
         <div className="py-2 max-h-64 overflow-y-auto">
+          {filtered.length === 0 && (
+            <div className="px-4 py-6 text-center text-sm text-white/30">
+              No commands found
+            </div>
+          )}
           {filtered.map((cmd) => (
             <button
               key={cmd.id}

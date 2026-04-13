@@ -27,7 +27,7 @@ const navItems = [
 export function Sidebar() {
   const pathname = usePathname();
   const { sidebarOpen, toggleSidebar } = useUI();
-  const { conversations, activeConversationId, setActiveConversation } = useChat();
+  const { conversations, activeConversationId, setActiveConversation, loadMessages } = useChat();
 
   return (
     <>
@@ -112,7 +112,10 @@ export function Sidebar() {
               {conversations.slice(0, 5).map((conv) => (
                 <button
                   key={conv.id}
-                  onClick={() => setActiveConversation(conv.id)}
+                  onClick={() => {
+                    setActiveConversation(conv.id);
+                    loadMessages(conv.id);
+                  }}
                   className={cn(
                     'w-full text-left px-2 py-1.5 rounded-md text-xs truncate transition-colors',
                     conv.id === activeConversationId

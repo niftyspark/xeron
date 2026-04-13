@@ -55,3 +55,20 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: 'Server error' }, { status: 500 });
   }
 }
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const token = getTokenFromHeaders(req.headers);
+    if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const payload = await verifyToken(token);
+    if (!payload) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+
+    // Delete user - cascades will handle related data (conversations, memories, etc.)
+    await db.delete(schema.users).where(eq(schema.users.id, payload.userId));
+
+    return NextResponse.json({ success: true, deleted: true });
+  } catch (err) {
+    console.error('Delete account error:', err);
+    return NextResponse.json({ error: 'Server error' }, { status: 500 });
+  }
+}

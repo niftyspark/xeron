@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils';
 import { ChatMessage } from '@/app/store/useChat';
 import { Copy, RotateCcw, ThumbsUp, ThumbsDown, User, Sparkles, Check } from 'lucide-react';
 import { useState } from 'react';
+import { toast } from 'sonner';
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
@@ -16,12 +17,43 @@ interface MessageBubbleProps {
 
 export function MessageBubble({ message }: MessageBubbleProps) {
   const [copied, setCopied] = useState(false);
+  const [feedbackGiven, setFeedbackGiven] = useState<'up' | 'down' | null>(null);
   const isUser = message.role === 'user';
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(message.content);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleFeedback = async (type: 'up' | 'down') => {
+    if (feedbackGiven) return;
+
+    try {
+      const token = localStorage.getItem('auth_token');
+      const res = await fetch('/api/learning', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          trigger: 'user_feedback',
+          lesson: message.content.slice(0, 200),
+          appliedTo: 'chat_response',
+          confidence: type === 'up' ? 1.0 : 0.0,
+        }),
+      });
+
+      if (!res.ok) {
+        throw new Error('Failed to submit feedback');
+      }
+
+      setFeedbackGiven(type);
+      toast.success(type === 'up' ? 'Thanks for the positive feedback!' : 'Feedback recorded. We\'ll improve.');
+    } catch (err) {
+      toast.error('Failed to submit feedback');
+    }
   };
 
   return (
@@ -137,10 +169,34 @@ export function MessageBubble({ message }: MessageBubbleProps) {
             <button onClick={handleCopy} className="p-1 rounded text-white/20 hover:text-white/50 transition-colors" title="Copy">
               {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
             </button>
-            <button className="p-1 rounded text-white/20 hover:text-white/50 transition-colors" title="Good response">
+            <button
+              onClick={() => handleFeedback('up')}
+              disabled={feedbackGiven !== null}
+              className={cn(
+                'p-1 rounded transition-colors',
+                feedbackGiven === 'up'
+                  ? 'text-emerald-400'
+                  : feedbackGiven !== null
+                    ? 'text-white/10 cursor-not-allowed'
+                    : 'text-white/20 hover:text-white/50'
+              )}
+              title="Good response"
+            >
               <ThumbsUp className="w-3.5 h-3.5" />
             </button>
-            <button className="p-1 rounded text-white/20 hover:text-white/50 transition-colors" title="Bad response">
+            <button
+              onClick={() => handleFeedback('down')}
+              disabled={feedbackGiven !== null}
+              className={cn(
+                'p-1 rounded transition-colors',
+                feedbackGiven === 'down'
+                  ? 'text-red-400'
+                  : feedbackGiven !== null
+                    ? 'text-white/10 cursor-not-allowed'
+                    : 'text-white/20 hover:text-white/50'
+              )}
+              title="Bad response"
+            >
               <ThumbsDown className="w-3.5 h-3.5" />
             </button>
             <span className="text-[10px] text-white/15 ml-2">

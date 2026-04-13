@@ -16,6 +16,7 @@ interface UIState {
   userTier: string;
   messagesRemaining: number;
   messagesLimit: number;
+  lastResetDate: string;
   toggleSidebar: () => void;
   setSidebarOpen: (open: boolean) => void;
   toggleCommandPalette: () => void;
@@ -29,6 +30,8 @@ interface UIState {
   setUserTier: (tier: string) => void;
   setMessagesRemaining: (count: number) => void;
   setMessagesLimit: (limit: number) => void;
+  decrementMessages: () => void;
+  checkDailyReset: () => void;
 }
 
 const themes: AppTheme[] = ['glassmorphism', 'neumorphism', 'minimalist', 'bento', 'neoskeu'];
@@ -46,6 +49,7 @@ export const useUI = create<UIState>()(
       userTier: 'free',
       messagesRemaining: 50,
       messagesLimit: 50,
+      lastResetDate: new Date().toDateString(),
       toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
       setSidebarOpen: (open) => set({ sidebarOpen: open }),
       toggleCommandPalette: () => set((s) => ({ commandPaletteOpen: !s.commandPaletteOpen })),
@@ -64,6 +68,16 @@ export const useUI = create<UIState>()(
       setUserTier: (tier) => set({ userTier: tier }),
       setMessagesRemaining: (count) => set({ messagesRemaining: count }),
       setMessagesLimit: (limit) => set({ messagesLimit: limit }),
+      decrementMessages: () => set((s) => ({
+        messagesRemaining: Math.max(0, s.messagesRemaining - 1),
+      })),
+      checkDailyReset: () => {
+        const today = new Date().toDateString();
+        const { lastResetDate, messagesLimit } = get();
+        if (lastResetDate !== today) {
+          set({ messagesRemaining: messagesLimit, lastResetDate: today });
+        }
+      },
     }),
     { name: 'xeron-ui' }
   )

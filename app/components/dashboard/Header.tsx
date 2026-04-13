@@ -3,7 +3,7 @@
 import { usePathname } from 'next/navigation';
 import { WalletConnectButton } from '@/app/components/web3/ConnectButton';
 import { useUI } from '@/app/store/useUI';
-import { Menu, Search, Bell, Command } from 'lucide-react';
+import { Menu, Search, Command } from 'lucide-react';
 import { Button } from '@/app/components/ui/button';
 import { ThemeToggle } from './ThemeToggle';
 import { UserProfile } from './UserProfile';
@@ -51,12 +51,6 @@ export function Header() {
             <Command className="w-3 h-3" />K
           </kbd>
         </Button>
-
-        {/* Notifications */}
-        <button className="p-2 rounded-lg hover:bg-white/10 text-white/40 hover:text-white transition-colors relative">
-          <Bell className="w-5 h-5" />
-          <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-blue-500 rounded-full" />
-        </button>
 
         {/* Theme Toggle */}
         <ThemeToggle />

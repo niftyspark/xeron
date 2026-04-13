@@ -1,12 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useUI } from '@/app/store/useUI';
 import { useUser } from '@/app/store/useUser';
 import { 
   User, CreditCard, Zap, Clock, Settings, X, ChevronRight,
-  Check, Star, Crown, Database, MessageSquare, Brain
+  Check, Star, Crown, Database, MessageSquare, Brain, Loader2
 } from 'lucide-react';
 import { Button } from '@/app/components/ui/button';
 import { PLANS } from '@/lib/integrations';
@@ -18,14 +18,43 @@ const tierIcons: Record<string, React.ElementType> = {
   ultra: Crown,
 };
 
+interface UserStats {
+  memoriesCount: number;
+  conversationsCount: number;
+  skillsEnabled: number;
+  userTier: string;
+}
+
 export function UserProfile() {
   const [open, setOpen] = useState(false);
+  const [stats, setStats] = useState<UserStats | null>(null);
+  const [loading, setLoading] = useState(false);
   const { userTier, messagesRemaining, messagesLimit, setUserTier, setMessagesRemaining, setMessagesLimit } = useUI();
-  const { displayName, walletAddress } = useUser();
+  const { displayName, walletAddress, token } = useUser();
 
   const currentPlan = PLANS.find(p => p.id === userTier) || PLANS[0];
   const TierIcon = tierIcons[userTier] || Check;
   const usagePercent = messagesLimit > 0 ? Math.min((messagesRemaining / messagesLimit) * 100, 100) : 0;
+
+  useEffect(() => {
+    if (open && token) {
+      setLoading(true);
+      fetch('/api/user/stats', {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (!data.error) {
+            setStats(data);
+            if (data.userTier) {
+              setUserTier(data.userTier);
+            }
+          }
+        })
+        .catch(() => {})
+        .finally(() => setLoading(false));
+    }
+  }, [open, token, setUserTier]);
 
   return (
     <div className="relative">
@@ -101,17 +130,35 @@ export function UserProfile() {
                 <div className="grid grid-cols-3 gap-2">
                   <div className="p-3 rounded-xl glass text-center">
                     <MessageSquare className="w-4 h-4 text-white/40 mx-auto mb-1" />
-                    <p className="text-sm text-white font-medium">{messagesRemaining}</p>
-                    <p className="text-[10px] text-white/30">Messages</p>
+                    <p className="text-sm text-white font-medium">
+                      {loading ? (
+                        <Loader2 className="w-3 h-3 animate-spin mx-auto" />
+                      ) : (
+                        stats?.conversationsCount ?? messagesRemaining
+                      )}
+                    </p>
+                    <p className="text-[10px] text-white/30">Chats</p>
                   </div>
                   <div className="p-3 rounded-xl glass text-center">
                     <Brain className="w-4 h-4 text-white/40 mx-auto mb-1" />
-                    <p className="text-sm text-white font-medium">127</p>
+                    <p className="text-sm text-white font-medium">
+                      {loading ? (
+                        <Loader2 className="w-3 h-3 animate-spin mx-auto" />
+                      ) : (
+                        stats?.memoriesCount ?? 0
+                      )}
+                    </p>
                     <p className="text-[10px] text-white/30">Memories</p>
                   </div>
                   <div className="p-3 rounded-xl glass text-center">
                     <Zap className="w-4 h-4 text-white/40 mx-auto mb-1" />
-                    <p className="text-sm text-white font-medium">20</p>
+                    <p className="text-sm text-white font-medium">
+                      {loading ? (
+                        <Loader2 className="w-3 h-3 animate-spin mx-auto" />
+                      ) : (
+                        stats?.skillsEnabled ?? 0
+                      )}
+                    </p>
                     <p className="text-[10px] text-white/30">Skills</p>
                   </div>
                 </div>

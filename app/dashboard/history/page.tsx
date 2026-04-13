@@ -6,12 +6,20 @@ import { Badge } from '@/app/components/ui/badge';
 import { Button } from '@/app/components/ui/button';
 import { Input } from '@/app/components/ui/input';
 import { MessageSquare, Search, Trash2, Pin, Clock } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { formatRelativeTime } from '@/lib/utils';
+import { useUser } from '@/app/store/useUser';
 
 export default function HistoryPage() {
-  const { conversations, setActiveConversation, deleteConversation } = useChat();
+  const { conversations, setActiveConversation, deleteConversationFromDB, loadConversations, conversationsLoaded, loadMessages } = useChat();
+  const { isAuthenticated } = useUser();
   const [search, setSearch] = useState('');
+
+  useEffect(() => {
+    if (isAuthenticated && !conversationsLoaded) {
+      loadConversations();
+    }
+  }, [isAuthenticated, conversationsLoaded, loadConversations]);
 
   const filtered = conversations.filter((c) =>
     (c.title || '').toLowerCase().includes(search.toLowerCase())
@@ -51,7 +59,10 @@ export default function HistoryPage() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.03 }}
               className="flex items-center gap-4 p-4 rounded-xl glass hover:bg-white/[0.06] transition-all group cursor-pointer"
-              onClick={() => setActiveConversation(conv.id)}
+              onClick={() => {
+                setActiveConversation(conv.id);
+                loadMessages(conv.id);
+              }}
             >
               <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center shrink-0">
                 <MessageSquare className="w-5 h-5 text-white/30" />
@@ -79,7 +90,7 @@ export default function HistoryPage() {
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  deleteConversation(conv.id);
+                  deleteConversationFromDB(conv.id);
                 }}
                 className="p-2 rounded-lg text-white/20 hover:text-red-400 hover:bg-red-500/10 transition-colors opacity-0 group-hover:opacity-100"
               >

@@ -49,7 +49,6 @@ export async function POST(req: NextRequest) {
         displayName: user.displayName,
         walletAddress: user.walletAddress,
       },
-      magicLinkSent: true,
     });
   } catch (error) {
     console.error('Email auth error:', error);

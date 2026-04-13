@@ -11,16 +11,19 @@ import { useUI } from '@/app/store/useUI';
 import { toast } from 'sonner';
 import {
   User, Palette, Shield, Database, 
-  ExternalLink, Save, Check, CreditCard, Zap, Crown, Rocket
+  ExternalLink, Save, Check, CreditCard, Zap, Crown, Rocket, Loader2
 } from 'lucide-react';
 import { PLANS } from '@/lib/integrations';
 
 export default function SettingsPage() {
-  const { walletAddress, displayName, token } = useUser();
+  const { walletAddress, displayName, token, logout } = useUser();
   const { theme, setTheme, userTier, messagesRemaining, messagesLimit } = useUI();
   
   const [name, setName] = useState(displayName || '');
   const [saving, setSaving] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [clearingMemories, setClearingMemories] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
 
   const handleSaveProfile = async () => {
     if (!token) return;
@@ -41,6 +44,109 @@ export default function SettingsPage() {
       toast.error('Error saving profile');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleExportData = async () => {
+    if (!token) {
+      toast.error('You must be logged in to export data');
+      return;
+    }
+    setExporting(true);
+    try {
+      const headers = { Authorization: `Bearer ${token}` };
+      const [conversationsRes, memoriesRes, userRes] = await Promise.all([
+        fetch('/api/conversations', { headers }),
+        fetch('/api/memories', { headers }),
+        fetch('/api/user', { headers }),
+      ]);
+
+      const conversations = conversationsRes.ok ? await conversationsRes.json() : [];
+      const memories = memoriesRes.ok ? await memoriesRes.json() : [];
+      const user = userRes.ok ? await userRes.json() : {};
+
+      const exportData = {
+        exportedAt: new Date().toISOString(),
+        user,
+        conversations,
+        memories,
+      };
+
+      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `xeron-export-${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success('Data exported successfully');
+    } catch {
+      toast.error('Failed to export data');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handleClearMemories = async () => {
+    if (!token) return;
+    const confirmed = window.confirm(
+      'Are you sure you want to clear all memories? This action cannot be undone.'
+    );
+    if (!confirmed) return;
+
+    setClearingMemories(true);
+    try {
+      const res = await fetch('/api/memories', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ clearAll: true }),
+      });
+      if (res.ok) {
+        toast.success('All memories cleared');
+      } else {
+        toast.error('Failed to clear memories');
+      }
+    } catch {
+      toast.error('Failed to clear memories');
+    } finally {
+      setClearingMemories(false);
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!token) return;
+    const confirmed = window.confirm(
+      'WARNING: This will permanently delete your account and all associated data including conversations, memories, and settings. This action CANNOT be undone.\n\nAre you sure you want to delete your account?'
+    );
+    if (!confirmed) return;
+
+    setDeletingAccount(true);
+    try {
+      const res = await fetch('/api/user', {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (res.ok) {
+        localStorage.removeItem('xeron_token');
+        localStorage.removeItem('xeron_user');
+        localStorage.removeItem('xeron-user');
+        localStorage.removeItem('xeron-ui');
+        logout();
+        window.location.href = '/';
+      } else {
+        toast.error('Failed to delete account');
+      }
+    } catch {
+      toast.error('Failed to delete account');
+    } finally {
+      setDeletingAccount(false);
     }
   };
 
@@ -228,17 +334,44 @@ export default function SettingsPage() {
           </div>
 
           <div className="space-y-3">
-            <Button variant="outline" className="w-full justify-start gap-2">
-              <ExternalLink className="w-4 h-4" />
-              Export All Data
+            <Button
+              variant="outline"
+              className="w-full justify-start gap-2"
+              onClick={handleExportData}
+              disabled={exporting}
+            >
+              {exporting ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <ExternalLink className="w-4 h-4" />
+              )}
+              {exporting ? 'Exporting...' : 'Export All Data'}
             </Button>
-            <Button variant="outline" className="w-full justify-start gap-2 text-amber-400 hover:text-amber-300">
-              <Database className="w-4 h-4" />
-              Clear All Memories
+            <Button
+              variant="outline"
+              className="w-full justify-start gap-2 text-amber-400 hover:text-amber-300"
+              onClick={handleClearMemories}
+              disabled={clearingMemories}
+            >
+              {clearingMemories ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Database className="w-4 h-4" />
+              )}
+              {clearingMemories ? 'Clearing...' : 'Clear All Memories'}
             </Button>
-            <Button variant="destructive" className="w-full justify-start gap-2">
-              <Shield className="w-4 h-4" />
-              Delete Account
+            <Button
+              variant="destructive"
+              className="w-full justify-start gap-2"
+              onClick={handleDeleteAccount}
+              disabled={deletingAccount}
+            >
+              {deletingAccount ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Shield className="w-4 h-4" />
+              )}
+              {deletingAccount ? 'Deleting...' : 'Delete Account'}
             </Button>
           </div>
         </motion.section>

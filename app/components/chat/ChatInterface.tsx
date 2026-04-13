@@ -5,20 +5,25 @@ import { useChat, ChatMessage } from '@/app/store/useChat';
 import { useUser } from '@/app/store/useUser';
 import { useStreaming } from '@/app/hooks/useStreaming';
 import { useSkills } from '@/app/store/useSkills';
+import { useUI } from '@/app/store/useUI';
 import { MessageBubble } from './MessageBubble';
 import { ChatInput } from './ChatInput';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Sparkles } from 'lucide-react';
 
 export function ChatInterface() {
-  const { 
-    conversations, activeConversationId, addConversation, 
-    addMessage, setActiveConversation, getActiveConversation, currentModel 
+  const {
+    conversations, activeConversationId, addMessage,
+    setActiveConversation, currentModel,
+    createConversation, saveMessage, loadConversations, loadMessages,
+    conversationsLoaded,
   } = useChat();
-  const { token, userId } = useUser();
+  const { token, isAuthenticated } = useUser();
   const { enabledSkills } = useSkills();
+  const { decrementMessages, checkDailyReset } = useUI();
   const { isStreaming, startStream, stopStream } = useStreaming();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const loadedConvRef = useRef<Set<string>>(new Set());
 
   const activeConv = conversations.find(c => c.id === activeConversationId);
   const messages = activeConv?.messages || [];
@@ -31,27 +36,47 @@ export function ChatInterface() {
     scrollToBottom();
   }, [messages, scrollToBottom]);
 
+  // Check daily message reset
+  useEffect(() => {
+    checkDailyReset();
+  }, [checkDailyReset]);
+
+  // Load conversations from DB on mount when authenticated
+  useEffect(() => {
+    if (isAuthenticated && !conversationsLoaded) {
+      loadConversations();
+    }
+  }, [isAuthenticated, conversationsLoaded, loadConversations]);
+
+  // Load messages when switching to a conversation
+  useEffect(() => {
+    if (activeConversationId && !loadedConvRef.current.has(activeConversationId)) {
+      loadedConvRef.current.add(activeConversationId);
+      loadMessages(activeConversationId);
+    }
+  }, [activeConversationId, loadMessages]);
+
   const handleSend = async (content: string) => {
     if (!content.trim() || isStreaming) return;
 
     let convId = activeConversationId;
-    
-    // Create new conversation if none active
+
+    // Create new conversation via API if none active
     if (!convId) {
-      const newConv = {
-        id: crypto.randomUUID(),
-        title: content.slice(0, 50) + (content.length > 50 ? '...' : ''),
-        model: currentModel,
-        messages: [],
-        isPinned: false,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-      addConversation(newConv);
+      const title = content.slice(0, 50) + (content.length > 50 ? '...' : '');
+      const newConv = await createConversation(title, currentModel);
+      if (!newConv) {
+        console.error('Failed to create conversation');
+        return;
+      }
       convId = newConv.id;
+      loadedConvRef.current.add(convId);
     }
 
-    // Add user message
+    // Decrement daily message counter
+    decrementMessages();
+
+    // Add user message locally
     const userMsg: ChatMessage = {
       id: crypto.randomUUID(),
       role: 'user',
@@ -59,6 +84,9 @@ export function ChatInterface() {
       createdAt: new Date(),
     };
     addMessage(convId, userMsg);
+
+    // Save user message to DB
+    saveMessage(convId, 'user', content);
 
     // Add empty assistant message for streaming
     const assistantMsg: ChatMessage = {
@@ -79,6 +107,36 @@ export function ChatInterface() {
 
     // Stream response
     await startStream(convId, assistantMsg.id, allMessages, currentModel);
+
+    // After streaming completes, save the assistant message to DB
+    const updatedConv = useChat.getState().conversations.find(c => c.id === convId);
+    const finalAssistantMsg = updatedConv?.messages.find(m => m.id === assistantMsg.id);
+    if (finalAssistantMsg && finalAssistantMsg.content) {
+      saveMessage(convId, 'assistant', finalAssistantMsg.content);
+    }
+
+    // Fire-and-forget: extract memories from recent messages
+    const latestConv = useChat.getState().conversations.find(c => c.id === convId);
+    const recentMessages = (latestConv?.messages || [])
+      .filter(m => m.content)
+      .slice(-4)
+      .map(m => ({ role: m.role, content: m.content }));
+
+    if (recentMessages.length > 0 && token) {
+      fetch('/api/ai/extract-memories', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          conversationId: convId,
+          messages: recentMessages,
+        }),
+      }).catch(() => {
+        // Silent fail - memory extraction is best-effort
+      });
+    }
   };
 
   return (

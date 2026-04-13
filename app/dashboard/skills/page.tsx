@@ -6,13 +6,12 @@ import { BUILTIN_SKILLS, SKILL_CATEGORIES } from '@/lib/skills';
 import { useSkills } from '@/app/store/useSkills';
 import { Switch } from '@/app/components/ui/switch';
 import { Badge } from '@/app/components/ui/badge';
-import { Button } from '@/app/components/ui/button';
 import { Input } from '@/app/components/ui/input';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/app/components/ui/tabs';
 import {
   Globe, Code2, Bug, FileText, Languages, Calculator, BarChart3, Database,
   Mail, PenTool, Search, FileCode, TrendingUp, Wallet, Image, FileCode2,
-  Network, Table, Settings, Plus, Regex
+  Network, Table, Regex
 } from 'lucide-react';
 
 const iconMap: Record<string, any> = {
@@ -42,10 +41,6 @@ export default function SkillsPage() {
             Enable and configure XERON&apos;s capabilities. {enabledSkills.length} active skills.
           </p>
         </div>
-        <Button variant="outline" className="gap-2">
-          <Plus className="w-4 h-4" />
-          Create Custom Skill
-        </Button>
       </div>
 
       <div className="flex flex-col sm:flex-row items-start gap-4 mb-6">
@@ -98,13 +93,6 @@ export default function SkillsPage() {
                 />
               </div>
               <p className="text-xs text-white/40 leading-relaxed">{skill.description}</p>
-              
-              <div className="mt-3 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                <Button variant="ghost" size="sm" className="text-xs">
-                  <Settings className="w-3 h-3 mr-1" />
-                  Configure
-                </Button>
-              </div>
             </motion.div>
           );
         })}
