@@ -3,13 +3,12 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
-export type AppTheme = 'glassmorphism' | 'neumorphism' | 'minimalist' | 'bento' | 'neoskeu';
+export type AppTheme = 'dark' | 'light' | 'neumorphism' | 'cyberpunk';
 
 interface UIState {
   sidebarOpen: boolean;
   commandPaletteOpen: boolean;
   rightPanelOpen: boolean;
-  theme: 'dark' | 'light';
   appTheme: AppTheme;
   skillsPanelOpen: boolean;
   integrationsPanelOpen: boolean;
@@ -22,7 +21,6 @@ interface UIState {
   toggleCommandPalette: () => void;
   setCommandPaletteOpen: (open: boolean) => void;
   toggleRightPanel: () => void;
-  setTheme: (theme: 'dark' | 'light') => void;
   setAppTheme: (theme: AppTheme) => void;
   cycleTheme: () => void;
   setSkillsPanelOpen: (open: boolean) => void;
@@ -34,7 +32,7 @@ interface UIState {
   checkDailyReset: () => void;
 }
 
-const themes: AppTheme[] = ['glassmorphism', 'neumorphism', 'minimalist', 'bento', 'neoskeu'];
+const themes: AppTheme[] = ['dark', 'light', 'neumorphism', 'cyberpunk'];
 
 export const useUI = create<UIState>()(
   persist(
@@ -42,8 +40,7 @@ export const useUI = create<UIState>()(
       sidebarOpen: true,
       commandPaletteOpen: false,
       rightPanelOpen: false,
-      theme: 'dark',
-      appTheme: 'glassmorphism',
+      appTheme: 'dark',
       skillsPanelOpen: false,
       integrationsPanelOpen: false,
       userTier: 'free',
@@ -55,7 +52,6 @@ export const useUI = create<UIState>()(
       toggleCommandPalette: () => set((s) => ({ commandPaletteOpen: !s.commandPaletteOpen })),
       setCommandPaletteOpen: (open) => set({ commandPaletteOpen: open }),
       toggleRightPanel: () => set((s) => ({ rightPanelOpen: !s.rightPanelOpen })),
-      setTheme: (theme) => set({ theme }),
       setAppTheme: (appTheme) => set({ appTheme }),
       cycleTheme: () => {
         const current = get().appTheme;

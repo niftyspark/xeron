@@ -17,7 +17,7 @@ import { PLANS } from '@/lib/integrations';
 
 export default function SettingsPage() {
   const { walletAddress, displayName, token, logout } = useUser();
-  const { theme, setTheme, userTier, messagesRemaining, messagesLimit } = useUI();
+  const { appTheme, setAppTheme, userTier, messagesRemaining, messagesLimit } = useUI();
   
   const [name, setName] = useState(displayName || '');
   const [saving, setSaving] = useState(false);
@@ -305,14 +305,27 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <span className="text-sm text-white">Dark Mode</span>
-                <p className="text-xs text-white/30">Toggle between dark and light themes</p>
-              </div>
-              <Switch checked={theme === 'dark'} onCheckedChange={(checked) => setTheme(checked ? 'dark' : 'light')} />
-            </div>
+          <div className="space-y-2">
+            {(['dark', 'light', 'neumorphism', 'cyberpunk'] as const).map((t) => (
+              <button
+                key={t}
+                onClick={() => setAppTheme(t)}
+                className={`w-full flex items-center justify-between px-4 py-3 rounded-xl transition-colors ${
+                  appTheme === t ? 'bg-blue-600/10 border border-blue-500/30' : 'glass hover:bg-white/[0.06]'
+                }`}
+              >
+                <div>
+                  <span className="text-sm text-white">{t.charAt(0).toUpperCase() + t.slice(1)}</span>
+                  <p className="text-xs text-white/30">
+                    {t === 'dark' && 'Default dark theme'}
+                    {t === 'light' && 'Clean light mode'}
+                    {t === 'neumorphism' && 'Soft extruded shadows'}
+                    {t === 'cyberpunk' && 'Industrial neon style'}
+                  </p>
+                </div>
+                {appTheme === t && <Check className="w-4 h-4 text-blue-400" />}
+              </button>
+            ))}
           </div>
         </motion.section>
 
