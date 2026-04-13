@@ -7,7 +7,7 @@ import { FileTree } from '@/app/components/code/FileTree';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Send, Sparkles, Bug, BookOpen, Code2, Eye, ChevronDown, ChevronRight,
-  Loader2, Bot, User, FileCode2, Plus, Lightbulb, Wand2, MessageSquare,
+  Loader2, Bot, User, FileCode2, Plus, Lightbulb, Wand2, MessageSquare, Square,
 } from 'lucide-react';
 
 const CodeEditor = dynamic(
@@ -63,15 +63,51 @@ const STARTERS = [
 ];
 
 // ── Code block parser ──────────────────────────────────────────────────────
+// Maps language identifiers to default filenames when AI doesn't use filename format
+const LANG_TO_FILE: Record<string, string> = {
+  html: 'index.html', htm: 'index.html',
+  css: 'style.css', scss: 'style.scss',
+  js: 'script.js', javascript: 'script.js',
+  jsx: 'App.jsx', tsx: 'App.tsx', ts: 'app.ts', typescript: 'app.ts',
+  json: 'data.json', py: 'main.py', python: 'main.py',
+  vue: 'App.vue', svelte: 'App.svelte',
+  md: 'README.md', markdown: 'README.md',
+  xml: 'data.xml', svg: 'image.svg',
+  sh: 'script.sh', bash: 'script.sh',
+  yaml: 'config.yaml', yml: 'config.yaml',
+};
+
 function parseCodeBlocks(text: string): Record<string, string> | null {
   const regex = /```(\S+)\n([\s\S]*?)```/g;
   const files: Record<string, string> = {};
+  const usedDefaults: Record<string, number> = {};
   let match;
+
   while ((match = regex.exec(text)) !== null) {
-    const name = match[1];
+    let name = match[1].trim();
     const code = match[2].trimEnd();
-    if (name.includes('.')) files[name] = code;
+
+    if (!name || !code) continue;
+
+    // If name has a dot, it's a filename — use as-is
+    if (name.includes('.')) {
+      files[name] = code;
+    } else {
+      // It's a language name — map to a default filename
+      const base = LANG_TO_FILE[name.toLowerCase()];
+      if (base) {
+        // Handle multiple blocks of the same language (e.g. two JS blocks)
+        const count = usedDefaults[base] || 0;
+        const finalName = count === 0 ? base : base.replace('.', `_${count}.`);
+        usedDefaults[base] = count + 1;
+        files[finalName] = code;
+      } else {
+        // Unknown language — use name as filename with .txt
+        files[`${name}.txt`] = code;
+      }
+    }
   }
+
   return Object.keys(files).length > 0 ? files : null;
 }
 
@@ -88,6 +124,7 @@ export default function CodeAgentPage() {
   const [fwOpen, setFwOpen] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -105,6 +142,20 @@ export default function CodeAgentPage() {
   // Track which files the AI is currently writing (shown live in chat)
   const [activeWritingFiles, setActiveWritingFiles] = useState<string[]>([]);
 
+  // Stop generation
+  const handleStop = useCallback(() => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setIsGenerating(false);
+    setActiveWritingFiles([]);
+    // Mark last assistant message as not streaming
+    setMessages(prev => prev.map((m, i) =>
+      i === prev.length - 1 && m.role === 'assistant' && m.isStreaming
+        ? { ...m, isStreaming: false, content: m.content || 'Stopped.' }
+        : m
+    ));
+  }, []);
+
   // Send message to AI
   const handleSend = useCallback(async (text?: string) => {
     const prompt = (text || input).trim();
@@ -117,6 +168,7 @@ export default function CodeAgentPage() {
     setMessages(prev => [...prev, userMsg, assistantMsg]);
     setIsGenerating(true);
     setActiveWritingFiles([]);
+    abortRef.current = new AbortController();
 
     try {
       const action = mode === 'plan' ? 'explain' : 'generate';
@@ -124,6 +176,7 @@ export default function CodeAgentPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt, files, framework, action }),
+        signal: abortRef.current.signal,
       });
 
       if (!res.ok) {
@@ -166,6 +219,8 @@ export default function CodeAgentPage() {
                   if (newFileNames.length > 0) {
                     setActiveFile(newFileNames[newFileNames.length - 1]);
                   }
+                  // Switch to code view so user sees files being written
+                  setRightTab('code');
                   lastExtracted = extracted;
 
                   // Chat only shows explanation text (strip code blocks)
@@ -213,11 +268,20 @@ export default function CodeAgentPage() {
         ));
       }
       setActiveWritingFiles([]);
-    } catch (err) {
-      setMessages(prev => prev.map(m => m.id === assistantMsg.id ? { ...m, content: 'Connection failed.', isStreaming: false } : m));
+    } catch (err: any) {
+      if (err?.name === 'AbortError') {
+        // User stopped - keep whatever content we have
+        setMessages(prev => prev.map(m => m.id === assistantMsg.id
+          ? { ...m, content: m.content || 'Stopped by user.', isStreaming: false }
+          : m
+        ));
+      } else {
+        setMessages(prev => prev.map(m => m.id === assistantMsg.id ? { ...m, content: 'Connection failed.', isStreaming: false } : m));
+      }
       setActiveWritingFiles([]);
     } finally {
       setIsGenerating(false);
+      abortRef.current = null;
     }
   }, [input, mode, files, framework, isGenerating]);
 
@@ -411,17 +475,27 @@ export default function CodeAgentPage() {
               style={{ height: 'auto' }}
               onInput={e => { const t = e.target as HTMLTextAreaElement; t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, 120) + 'px'; }}
             />
-            <button
-              onClick={() => handleSend()}
-              disabled={!input.trim() || isGenerating}
-              className={`p-2 rounded-lg transition-all shrink-0 ${
-                input.trim() && !isGenerating
-                  ? 'bg-blue-600 text-white hover:bg-blue-700'
-                  : 'bg-white/5 text-white/20'
-              }`}
-            >
-              {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-            </button>
+            {isGenerating ? (
+              <button
+                onClick={handleStop}
+                className="p-2 rounded-lg bg-red-600 text-white hover:bg-red-700 transition-all shrink-0"
+                title="Stop generating"
+              >
+                <Square className="w-4 h-4" />
+              </button>
+            ) : (
+              <button
+                onClick={() => handleSend()}
+                disabled={!input.trim()}
+                className={`p-2 rounded-lg transition-all shrink-0 ${
+                  input.trim()
+                    ? 'bg-blue-600 text-white hover:bg-blue-700'
+                    : 'bg-white/5 text-white/20'
+                }`}
+              >
+                <Send className="w-4 h-4" />
+              </button>
+            )}
           </div>
           <div className="flex items-center justify-between mt-1.5 px-1">
             <span className="text-[10px] text-white/20">Enter to send · Shift+Enter new line</span>
