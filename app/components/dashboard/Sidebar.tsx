@@ -9,11 +9,12 @@ import { useChat } from '@/app/store/useChat';
 import {
   MessageSquare, Zap, Wrench, Calendar, Brain,
   Cpu, BookOpen, History, Settings, ChevronLeft,
-  ChevronRight, Sparkles, Plus, X, Pin,
+  ChevronRight, Sparkles, Plus, X, Pin, Code2,
 } from 'lucide-react';
 
 const navItems = [
   { label: 'Chat', href: '/dashboard', icon: MessageSquare },
+  { label: 'Code Agent', href: '/dashboard/code', icon: Code2 },
   { label: 'Skills', href: '/dashboard/skills', icon: Zap },
   { label: 'Tools', href: '/dashboard/tools', icon: Wrench },
   { label: 'Tasks', href: '/dashboard/tasks', icon: Calendar },

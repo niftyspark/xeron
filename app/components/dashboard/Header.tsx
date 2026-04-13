@@ -10,6 +10,7 @@ import { UserProfile } from './UserProfile';
 
 const pageTitles: Record<string, string> = {
   '/dashboard': 'Chat',
+  '/dashboard/code': 'Code Agent',
   '/dashboard/skills': 'Skills',
   '/dashboard/tools': 'Tools',
   '/dashboard/tasks': 'Scheduled Tasks',
