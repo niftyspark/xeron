@@ -1,818 +1,455 @@
 'use client';
 
-import { useState, useCallback, useRef, useEffect } from 'react';
-import { CodeEditor } from '@/app/components/code/CodeEditor';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import dynamic from 'next/dynamic';
 import { SandboxPreview } from '@/app/components/code/SandboxPreview';
 import { FileTree } from '@/app/components/code/FileTree';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Send,
-  Sparkles,
-  Bug,
-  BookOpen,
-  Play,
-  GripVertical,
-  ChevronDown,
-  Loader2,
-  Bot,
-  User,
-  Code2,
-  PanelRightClose,
-  PanelRightOpen,
+  Send, Sparkles, Bug, BookOpen, Code2, Eye, ChevronDown, ChevronRight,
+  Loader2, Bot, User, FileCode2, Plus, Lightbulb, Wand2, MessageSquare,
 } from 'lucide-react';
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
+const CodeEditor = dynamic(
+  () => import('@/app/components/code/CodeEditor').then(m => ({ default: m.CodeEditor })),
+  { ssr: false, loading: () => <div className="flex-1 flex items-center justify-center bg-[#0d0d14]"><Loader2 className="w-6 h-6 text-white/20 animate-spin" /></div> }
+);
 
+// ── Types ──────────────────────────────────────────────────────────────────
 type Framework = 'html' | 'react' | 'vue' | 'svelte' | 'vanilla';
-type Action = 'generate' | 'edit' | 'fix' | 'explain';
+type Mode = 'plan' | 'agent';
+type RightTab = 'preview' | 'code';
 
-interface ChatMessage {
+interface ChatMsg {
+  id: string;
   role: 'user' | 'assistant';
   content: string;
+  mode: Mode;
+  files?: Record<string, string>;
+  isStreaming?: boolean;
 }
 
-// ---------------------------------------------------------------------------
-// Default starter files per framework
-// ---------------------------------------------------------------------------
-
-const DEFAULT_FILES: Record<Framework, Record<string, string>> = {
+// ── Default templates ──────────────────────────────────────────────────────
+const TEMPLATES: Record<Framework, Record<string, string>> = {
   html: {
-    'index.html': `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>My Project</title>
-  <link rel="stylesheet" href="style.css" />
-</head>
-<body>
-  <div class="container">
-    <h1>Hello World</h1>
-    <p>Start building something amazing!</p>
-  </div>
-  <script src="script.js"><\/script>
-</body>
-</html>`,
-    'style.css': `* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-
-body {
-  font-family: system-ui, -apple-system, sans-serif;
-  background: #0f0f1a;
-  color: #e0e0e0;
-  min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.container {
-  text-align: center;
-  padding: 2rem;
-}
-
-h1 {
-  font-size: 2.5rem;
-  background: linear-gradient(135deg, #667eea, #764ba2);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  margin-bottom: 0.5rem;
-}
-
-p {
-  color: #888;
-  font-size: 1.1rem;
-}`,
-    'script.js': `// Your JavaScript code here
-console.log('Hello from XERON Code Agent!');`,
+    'index.html': '<!DOCTYPE html>\n<html lang="en">\n<head>\n  <meta charset="UTF-8">\n  <meta name="viewport" content="width=device-width, initial-scale=1.0">\n  <title>My App</title>\n  <link rel="stylesheet" href="style.css">\n</head>\n<body>\n  <div class="container">\n    <h1>Hello World</h1>\n    <p>Start building your app</p>\n  </div>\n  <script src="script.js"></script>\n</body>\n</html>',
+    'style.css': '* { margin: 0; padding: 0; box-sizing: border-box; }\nbody { font-family: system-ui, sans-serif; min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #0f0f1a; color: #fff; }\n.container { text-align: center; }\nh1 { font-size: 2.5rem; margin-bottom: 0.5rem; background: linear-gradient(135deg, #3b82f6, #06b6d4); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }\np { color: #888; }',
+    'script.js': 'console.log("App loaded");',
   },
-
   react: {
-    'App.jsx': `function App() {
-  const [count, setCount] = React.useState(0);
-
-  return (
-    <div style={{
-      minHeight: '100vh',
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      justifyContent: 'center',
-      background: '#0f0f1a',
-      color: '#e0e0e0',
-      fontFamily: 'system-ui, -apple-system, sans-serif',
-    }}>
-      <h1 style={{
-        fontSize: '2.5rem',
-        background: 'linear-gradient(135deg, #667eea, #764ba2)',
-        WebkitBackgroundClip: 'text',
-        WebkitTextFillColor: 'transparent',
-        marginBottom: '1rem',
-      }}>
-        React App
-      </h1>
-      <p style={{ color: '#888', marginBottom: '1.5rem' }}>Count: {count}</p>
-      <button
-        onClick={() => setCount(c => c + 1)}
-        style={{
-          padding: '0.75rem 2rem',
-          borderRadius: '0.5rem',
-          border: 'none',
-          background: 'linear-gradient(135deg, #667eea, #764ba2)',
-          color: 'white',
-          fontSize: '1rem',
-          cursor: 'pointer',
-          fontWeight: 600,
-        }}
-      >
-        Increment
-      </button>
-    </div>
-  );
-}`,
-    'style.css': `* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}`,
+    'App.jsx': 'import React from "react";\n\nfunction App() {\n  const [count, setCount] = React.useState(0);\n\n  return (\n    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#0f0f1a", color: "#fff", fontFamily: "system-ui" }}>\n      <div style={{ textAlign: "center" }}>\n        <h1 style={{ fontSize: "2.5rem", marginBottom: "1rem" }}>React App</h1>\n        <button\n          onClick={() => setCount(c => c + 1)}\n          style={{ padding: "12px 24px", fontSize: "1rem", background: "#3b82f6", color: "#fff", border: "none", borderRadius: "8px", cursor: "pointer" }}\n        >\n          Count: {count}\n        </button>\n      </div>\n    </div>\n  );\n}\n\nexport default App;',
+    'style.css': '* { margin: 0; padding: 0; box-sizing: border-box; }',
   },
-
   vue: {
-    'App.vue': `<template>
-  <div class="app">
-    <h1>Vue App</h1>
-    <p>Count: {{ count }}</p>
-    <button @click="count++">Increment</button>
-  </div>
-</template>
-
-<script>
-export default {
-  data() {
-    return {
-      count: 0,
-    };
+    'App.vue': '<template>\n  <div class="app">\n    <h1>Vue App</h1>\n    <button @click="count++">Count: {{ count }}</button>\n  </div>\n</template>\n\n<script>\nexport default {\n  data() {\n    return { count: 0 }\n  }\n}\n</script>\n\n<style>\n.app { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #0f0f1a; color: #fff; font-family: system-ui; }\nbutton { padding: 12px 24px; font-size: 1rem; background: #3b82f6; color: #fff; border: none; border-radius: 8px; cursor: pointer; margin-top: 1rem; }\n</style>',
+    'style.css': '',
   },
-};
-</script>
-
-<style>
-.app {
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  background: #0f0f1a;
-  color: #e0e0e0;
-  font-family: system-ui, -apple-system, sans-serif;
-}
-
-h1 {
-  font-size: 2.5rem;
-  background: linear-gradient(135deg, #667eea, #764ba2);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  margin-bottom: 1rem;
-}
-
-p {
-  color: #888;
-  margin-bottom: 1.5rem;
-}
-
-button {
-  padding: 0.75rem 2rem;
-  border-radius: 0.5rem;
-  border: none;
-  background: linear-gradient(135deg, #667eea, #764ba2);
-  color: white;
-  font-size: 1rem;
-  cursor: pointer;
-  font-weight: 600;
-}
-</style>`,
-    'style.css': `* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}`,
-  },
-
   svelte: {
-    'App.svelte': `<script>
-  let count = 0;
-</script>
-
-<div class="app">
-  <h1>Svelte App</h1>
-  <p>Count: {count}</p>
-  <button on:click={() => count++}>Increment</button>
-</div>
-
-<style>
-  .app {
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    background: #0f0f1a;
-    color: #e0e0e0;
-    font-family: system-ui, -apple-system, sans-serif;
-  }
-
-  h1 {
-    font-size: 2.5rem;
-    background: linear-gradient(135deg, #667eea, #764ba2);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    margin-bottom: 1rem;
-  }
-
-  p {
-    color: #888;
-    margin-bottom: 1.5rem;
-  }
-
-  button {
-    padding: 0.75rem 2rem;
-    border-radius: 0.5rem;
-    border: none;
-    background: linear-gradient(135deg, #667eea, #764ba2);
-    color: white;
-    font-size: 1rem;
-    cursor: pointer;
-    font-weight: 600;
-  }
-</style>`,
-    'style.css': `* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}`,
+    'index.html': '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Svelte App</title></head><body><h1>Svelte App</h1><p>Svelte preview renders templates</p></body></html>',
+    'style.css': 'body { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #0f0f1a; color: #fff; font-family: system-ui; }',
   },
-
   vanilla: {
-    'index.html': `<canvas id="canvas"></canvas>`,
-    'style.css': `* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-
-body {
-  overflow: hidden;
-  background: #0a0a0f;
-}
-
-canvas {
-  display: block;
-}`,
-    'script.js': `// Particle animation
-const particles = [];
-const PARTICLE_COUNT = 120;
-
-for (let i = 0; i < PARTICLE_COUNT; i++) {
-  particles.push({
-    x: Math.random() * canvas.width,
-    y: Math.random() * canvas.height,
-    vx: (Math.random() - 0.5) * 1.5,
-    vy: (Math.random() - 0.5) * 1.5,
-    radius: Math.random() * 2 + 1,
-  });
-}
-
-function draw() {
-  ctx.fillStyle = 'rgba(10, 10, 15, 0.15)';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  for (const p of particles) {
-    p.x += p.vx;
-    p.y += p.vy;
-
-    if (p.x < 0 || p.x > canvas.width) p.vx *= -1;
-    if (p.y < 0 || p.y > canvas.height) p.vy *= -1;
-
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(102, 126, 234, 0.8)';
-    ctx.fill();
-  }
-
-  // Draw connections
-  for (let i = 0; i < particles.length; i++) {
-    for (let j = i + 1; j < particles.length; j++) {
-      const dx = particles[i].x - particles[j].x;
-      const dy = particles[i].y - particles[j].y;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist < 120) {
-        ctx.beginPath();
-        ctx.moveTo(particles[i].x, particles[i].y);
-        ctx.lineTo(particles[j].x, particles[j].y);
-        ctx.strokeStyle = \`rgba(102, 126, 234, \${0.3 * (1 - dist / 120)})\`;
-        ctx.lineWidth = 0.5;
-        ctx.stroke();
-      }
-    }
-  }
-
-  requestAnimationFrame(draw);
-}
-
-draw();`,
+    'index.html': '<canvas id="canvas"></canvas>',
+    'style.css': 'body { margin: 0; overflow: hidden; background: #0f0f1a; }',
+    'script.js': 'const canvas = document.getElementById("canvas");\nconst ctx = canvas.getContext("2d");\ncanvas.width = window.innerWidth;\ncanvas.height = window.innerHeight;\n\nconst particles = Array.from({length: 100}, () => ({\n  x: Math.random() * canvas.width,\n  y: Math.random() * canvas.height,\n  vx: (Math.random() - 0.5) * 2,\n  vy: (Math.random() - 0.5) * 2,\n  r: Math.random() * 3 + 1,\n}));\n\nfunction draw() {\n  ctx.fillStyle = "rgba(15,15,26,0.1)";\n  ctx.fillRect(0, 0, canvas.width, canvas.height);\n  particles.forEach(p => {\n    p.x += p.vx; p.y += p.vy;\n    if (p.x < 0 || p.x > canvas.width) p.vx *= -1;\n    if (p.y < 0 || p.y > canvas.height) p.vy *= -1;\n    ctx.beginPath();\n    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);\n    ctx.fillStyle = "#3b82f6";\n    ctx.fill();\n  });\n  requestAnimationFrame(draw);\n}\ndraw();',
   },
 };
 
-// ---------------------------------------------------------------------------
-// Framework metadata
-// ---------------------------------------------------------------------------
-
-const FRAMEWORK_OPTIONS: { value: Framework; label: string; color: string }[] = [
-  { value: 'html', label: 'HTML', color: 'text-orange-400' },
-  { value: 'react', label: 'React', color: 'text-cyan-400' },
-  { value: 'vue', label: 'Vue', color: 'text-emerald-400' },
-  { value: 'svelte', label: 'Svelte', color: 'text-red-400' },
-  { value: 'vanilla', label: 'Vanilla JS', color: 'text-yellow-400' },
+const STARTERS = [
+  { icon: Sparkles, label: 'Landing page', prompt: 'Build a modern SaaS landing page with hero section, features grid, pricing cards, and a footer. Use gradient backgrounds and smooth animations.' },
+  { icon: Wand2, label: 'React todo app', prompt: 'Create a beautiful React todo app with add, complete, delete, and filter functionality. Use local state. Style it with a modern dark theme.' },
+  { icon: FileCode2, label: 'Portfolio site', prompt: 'Build a personal portfolio website with sections for about, projects, skills, and contact. Include smooth scroll animations and a clean dark design.' },
+  { icon: Lightbulb, label: 'Dashboard', prompt: 'Create a dashboard with a sidebar, top stats cards, a line chart, a recent activity table, and a dark theme. Use placeholder data.' },
 ];
 
-// ---------------------------------------------------------------------------
-// Parse code blocks from streamed AI response
-// ---------------------------------------------------------------------------
-
-function parseCodeBlocks(text: string): Record<string, string> {
+// ── Code block parser ──────────────────────────────────────────────────────
+function parseCodeBlocks(text: string): Record<string, string> | null {
+  const regex = /```(\S+)\n([\s\S]*?)```/g;
   const files: Record<string, string> = {};
-  // Match ```filename.ext\n...code...\n``` blocks
-  const regex = /```([a-zA-Z0-9_\-/.]+\.[a-zA-Z0-9]+)\n([\s\S]*?)```/g;
-  let match: RegExpExecArray | null;
+  let match;
   while ((match = regex.exec(text)) !== null) {
-    const filename = match[1].trim();
+    const name = match[1];
     const code = match[2].trimEnd();
-    files[filename] = code;
+    if (name.includes('.')) files[name] = code;
   }
-  return files;
+  return Object.keys(files).length > 0 ? files : null;
 }
 
-// ---------------------------------------------------------------------------
-// Strip code blocks to get explanation text
-// ---------------------------------------------------------------------------
-
-function extractExplanation(text: string): string {
-  // Remove all code blocks, then trim
-  return text
-    .replace(/```[a-zA-Z0-9_\-/.]+\.[a-zA-Z0-9]+\n[\s\S]*?```/g, '')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-}
-
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
-
-export default function CodePage() {
-  // -- State ----------------------------------------------------------------
-  const [files, setFiles] = useState<Record<string, string>>(DEFAULT_FILES.html);
-  const [activeFile, setActiveFile] = useState<string>('index.html');
+// ── Page ───────────────────────────────────────────────────────────────────
+export default function CodeAgentPage() {
+  const [mode, setMode] = useState<Mode>('agent');
   const [framework, setFramework] = useState<Framework>('html');
+  const [files, setFiles] = useState<Record<string, string>>(TEMPLATES.html);
+  const [activeFile, setActiveFile] = useState('index.html');
+  const [rightTab, setRightTab] = useState<RightTab>('preview');
+  const [messages, setMessages] = useState<ChatMsg[]>([]);
+  const [input, setInput] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
-  const [inputValue, setInputValue] = useState('');
-  const [showFrameworkDropdown, setShowFrameworkDropdown] = useState(false);
-  const [previewVisible, setPreviewVisible] = useState(true);
-  const [previewWidth, setPreviewWidth] = useState(40); // percentage
-
+  const [fwOpen, setFwOpen] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const isDraggingRef = useRef(false);
-  const containerRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll chat
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [chatMessages]);
+  }, [messages]);
 
-  // -- Framework switch -----------------------------------------------------
+  // Switch framework
   const switchFramework = useCallback((fw: Framework) => {
     setFramework(fw);
-    const defaults = DEFAULT_FILES[fw];
-    setFiles(defaults);
-    setActiveFile(Object.keys(defaults)[0]);
-    setChatMessages([]);
-    setShowFrameworkDropdown(false);
+    const tpl = TEMPLATES[fw];
+    setFiles(tpl);
+    setActiveFile(Object.keys(tpl)[0]);
+    setFwOpen(false);
   }, []);
 
-  // -- File tree handlers ---------------------------------------------------
-  const handleFileChange = useCallback((filename: string, newContent: string) => {
-    setFiles((prev) => ({ ...prev, [filename]: newContent }));
-  }, []);
+  // Send message to AI
+  const handleSend = useCallback(async (text?: string) => {
+    const prompt = (text || input).trim();
+    if (!prompt || isGenerating) return;
+    setInput('');
 
-  const handleCreateFile = useCallback((filename: string) => {
-    setFiles((prev) => ({ ...prev, [filename]: '' }));
-    setActiveFile(filename);
-  }, []);
+    const userMsg: ChatMsg = { id: crypto.randomUUID(), role: 'user', content: prompt, mode };
+    const assistantMsg: ChatMsg = { id: crypto.randomUUID(), role: 'assistant', content: '', mode, isStreaming: true };
 
-  const handleDeleteFile = useCallback(
-    (filename: string) => {
-      setFiles((prev) => {
-        const next = { ...prev };
-        delete next[filename];
-        return next;
+    setMessages(prev => [...prev, userMsg, assistantMsg]);
+    setIsGenerating(true);
+
+    try {
+      const action = mode === 'plan' ? 'explain' : 'generate';
+      const res = await fetch('/api/ai/code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt, files, framework, action }),
       });
-      setActiveFile((prev) => {
-        if (prev === filename) {
-          const remaining = Object.keys(files).filter((f) => f !== filename);
-          return remaining[0] ?? '';
-        }
-        return prev;
-      });
-    },
-    [files],
-  );
 
-  const handleRenameFile = useCallback(
-    (oldName: string, newName: string) => {
-      setFiles((prev) => {
-        const next = { ...prev };
-        next[newName] = next[oldName];
-        delete next[oldName];
-        return next;
-      });
-      if (activeFile === oldName) {
-        setActiveFile(newName);
-      }
-    },
-    [activeFile],
-  );
-
-  // -- AI request -----------------------------------------------------------
-  const sendToAI = useCallback(
-    async (prompt: string, action: Action) => {
-      if (!prompt.trim() || isGenerating) return;
-
-      setIsGenerating(true);
-      setChatMessages((prev) => [...prev, { role: 'user', content: prompt }]);
-      setInputValue('');
-
-      // Accumulate streamed text
-      let fullText = '';
-
-      // Add a placeholder assistant message
-      setChatMessages((prev) => [...prev, { role: 'assistant', content: '' }]);
-
-      try {
-        const response = await fetch('/api/ai/code', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            prompt,
-            files,
-            framework,
-            action,
-          }),
-        });
-
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          throw new Error(errorData.error || `Request failed: ${response.status}`);
-        }
-
-        const reader = response.body?.getReader();
-        if (!reader) throw new Error('No response body');
-
-        const decoder = new TextDecoder();
-        let buffer = '';
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() ?? '';
-
-          for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed || !trimmed.startsWith('data: ')) continue;
-
-            const data = trimmed.slice(6);
-            if (data === '[DONE]') continue;
-
-            try {
-              const parsed = JSON.parse(data);
-              const delta = parsed.choices?.[0]?.delta?.content;
-              if (delta) {
-                fullText += delta;
-                // Update the last assistant message
-                setChatMessages((prev) => {
-                  const updated = [...prev];
-                  updated[updated.length - 1] = {
-                    role: 'assistant',
-                    content: fullText,
-                  };
-                  return updated;
-                });
-              }
-            } catch {
-              // Skip malformed chunks
-            }
-          }
-        }
-
-        // Parse code blocks from the complete response and update files
-        const extractedFiles = parseCodeBlocks(fullText);
-        if (Object.keys(extractedFiles).length > 0) {
-          setFiles((prev) => {
-            const merged = { ...prev, ...extractedFiles };
-            return merged;
-          });
-          // Switch to the first new/updated file
-          const firstFile = Object.keys(extractedFiles)[0];
-          if (firstFile) {
-            setActiveFile(firstFile);
-          }
-        }
-      } catch (err: any) {
-        setChatMessages((prev) => {
-          const updated = [...prev];
-          updated[updated.length - 1] = {
-            role: 'assistant',
-            content: `Error: ${err.message}`,
-          };
-          return updated;
-        });
-      } finally {
+      if (!res.ok) {
+        setMessages(prev => prev.map(m => m.id === assistantMsg.id ? { ...m, content: 'Error: Failed to get response', isStreaming: false } : m));
         setIsGenerating(false);
+        return;
       }
-    },
-    [files, framework, isGenerating],
-  );
 
-  // -- Submit handler -------------------------------------------------------
-  const handleSubmit = useCallback(() => {
-    if (inputValue.trim()) {
-      sendToAI(inputValue, 'edit');
+      const reader = res.body?.getReader();
+      const decoder = new TextDecoder();
+      let full = '';
+      let buffer = '';
+
+      while (reader) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const data = line.slice(6);
+          if (data === '[DONE]') continue;
+          try {
+            const parsed = JSON.parse(data);
+            const chunk = parsed.choices?.[0]?.delta?.content;
+            if (chunk) {
+              full += chunk;
+              setMessages(prev => prev.map(m => m.id === assistantMsg.id ? { ...m, content: full } : m));
+            }
+          } catch {}
+        }
+      }
+
+      // Extract code blocks and update files
+      const extracted = parseCodeBlocks(full);
+      if (extracted && mode === 'agent') {
+        const newFiles = { ...files, ...extracted };
+        setFiles(newFiles);
+        setActiveFile(Object.keys(extracted)[0]);
+        setMessages(prev => prev.map(m => m.id === assistantMsg.id ? { ...m, content: full, files: extracted, isStreaming: false } : m));
+        setRightTab('preview');
+      } else {
+        setMessages(prev => prev.map(m => m.id === assistantMsg.id ? { ...m, isStreaming: false } : m));
+      }
+    } catch (err) {
+      setMessages(prev => prev.map(m => m.id === assistantMsg.id ? { ...m, content: 'Error: Connection failed', isStreaming: false } : m));
+    } finally {
+      setIsGenerating(false);
     }
-  }, [inputValue, sendToAI]);
+  }, [input, mode, files, framework, isGenerating]);
 
-  // -- Quick actions --------------------------------------------------------
-  const handleGenerate = useCallback(() => {
-    const prompt = inputValue.trim() || 'Create a beautiful, interactive landing page';
-    sendToAI(prompt, 'generate');
-  }, [inputValue, sendToAI]);
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
+  };
 
-  const handleFixBugs = useCallback(() => {
-    sendToAI('Analyze and fix any bugs in the current code', 'fix');
-  }, [sendToAI]);
-
-  const handleExplain = useCallback(() => {
-    sendToAI('Explain this code in detail', 'explain');
-  }, [sendToAI]);
-
-  // -- Resizable panels drag ------------------------------------------------
-  const handleDragStart = useCallback(() => {
-    isDraggingRef.current = true;
-
-    const handleDragMove = (e: MouseEvent) => {
-      if (!isDraggingRef.current || !containerRef.current) return;
-      const rect = containerRef.current.getBoundingClientRect();
-      const totalWidth = rect.width - 220; // subtract file tree width
-      const mouseX = e.clientX - rect.left - 220;
-      const editorFraction = mouseX / totalWidth;
-      const previewPct = Math.max(20, Math.min(70, (1 - editorFraction) * 100));
-      setPreviewWidth(previewPct);
-    };
-
-    const handleDragEnd = () => {
-      isDraggingRef.current = false;
-      document.removeEventListener('mousemove', handleDragMove);
-      document.removeEventListener('mouseup', handleDragEnd);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    };
-
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-    document.addEventListener('mousemove', handleDragMove);
-    document.addEventListener('mouseup', handleDragEnd);
-  }, []);
-
-  // -- Key handler for textarea ---------------------------------------------
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        handleSubmit();
-      }
-    },
-    [handleSubmit],
-  );
-
-  // -- Current framework meta -----------------------------------------------
-  const currentFw = FRAMEWORK_OPTIONS.find((f) => f.value === framework)!;
+  // Remove code blocks from display text, show only explanation
+  const getDisplayText = (content: string) => content.replace(/```\S+\n[\s\S]*?```/g, '').trim();
 
   return (
-    <div ref={containerRef} className="flex h-full w-full bg-[#08080d] overflow-hidden">
-      {/* ── LEFT: File Tree ──────────────────────────────────────── */}
-      <FileTree
-        files={files}
-        activeFile={activeFile}
-        onSelectFile={setActiveFile}
-        onCreateFile={handleCreateFile}
-        onDeleteFile={handleDeleteFile}
-        onRenameFile={handleRenameFile}
-      />
-
-      {/* ── CENTER: Editor + Chat ────────────────────────────────── */}
-      <div
-        className="flex-1 flex flex-col min-w-0 min-h-0"
-        style={previewVisible ? { width: `${100 - previewWidth}%` } : undefined}
-      >
-        {/* Toolbar */}
-        <div className="flex items-center justify-between h-11 px-3 border-b border-white/5 bg-[#0a0a12] shrink-0">
-          {/* Left: framework + branding */}
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1.5">
-              <Code2 className="w-4 h-4 text-blue-400" />
-              <span className="text-sm font-semibold text-white/80">Code Agent</span>
+    <div className="flex h-[calc(100vh-4rem)] overflow-hidden">
+      {/* ════════════════════════════════════════════════════════════════
+          LEFT PANEL — Chat
+         ════════════════════════════════════════════════════════════════ */}
+      <div className="w-[400px] min-w-[360px] flex flex-col border-r border-white/5 bg-[#0a0a0f]">
+        {/* Header */}
+        <div className="px-4 py-3 border-b border-white/5 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-600 to-cyan-500 flex items-center justify-center">
+              <Code2 className="w-4 h-4 text-white" />
             </div>
-
-            {/* Framework switcher */}
-            <div className="relative">
-              <button
-                onClick={() => setShowFrameworkDropdown((v) => !v)}
-                className="flex items-center gap-1.5 text-xs font-medium hover:bg-white/5 px-2.5 py-1.5 rounded-md transition-colors border border-white/5"
-              >
-                <span className={`font-semibold ${currentFw.color}`}>{currentFw.label}</span>
-                <ChevronDown className="w-3 h-3 text-white/40" />
-              </button>
-
-              {showFrameworkDropdown && (
-                <>
-                  <div
-                    className="fixed inset-0 z-40"
-                    onClick={() => setShowFrameworkDropdown(false)}
-                  />
-                  <div className="absolute top-full left-0 mt-1 z-50 bg-[#12121a] border border-white/10 rounded-lg shadow-xl py-1 min-w-[140px]">
-                    {FRAMEWORK_OPTIONS.map((fw) => (
-                      <button
-                        key={fw.value}
-                        onClick={() => switchFramework(fw.value)}
-                        className={`w-full text-left px-3 py-1.5 text-xs transition-colors hover:bg-white/5 ${
-                          fw.value === framework ? 'bg-white/5' : ''
-                        }`}
-                      >
-                        <span className={`font-medium ${fw.color}`}>{fw.label}</span>
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
+            <span className="text-sm font-semibold text-white">Code Agent</span>
           </div>
 
-          {/* Right: quick actions */}
-          <div className="flex items-center gap-1.5">
+          {/* Framework selector */}
+          <div className="relative">
             <button
-              onClick={handleGenerate}
-              disabled={isGenerating}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium bg-gradient-to-r from-blue-600/20 to-purple-600/20 border border-blue-500/20 text-blue-300 hover:border-blue-500/40 transition-colors disabled:opacity-40"
+              onClick={() => setFwOpen(!fwOpen)}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white/5 border border-white/10 text-xs text-white/60 hover:bg-white/10 transition-colors"
             >
-              <Sparkles className="w-3.5 h-3.5" />
-              Generate
+              {framework.charAt(0).toUpperCase() + framework.slice(1)}
+              <ChevronDown className="w-3 h-3" />
             </button>
-            <button
-              onClick={handleFixBugs}
-              disabled={isGenerating}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium text-white/50 hover:text-white hover:bg-white/5 transition-colors disabled:opacity-40"
-            >
-              <Bug className="w-3.5 h-3.5" />
-              Fix Bugs
-            </button>
-            <button
-              onClick={handleExplain}
-              disabled={isGenerating}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium text-white/50 hover:text-white hover:bg-white/5 transition-colors disabled:opacity-40"
-            >
-              <BookOpen className="w-3.5 h-3.5" />
-              Explain
-            </button>
-
-            <div className="w-px h-5 bg-white/10 mx-1" />
-
-            <button
-              onClick={() => setPreviewVisible((v) => !v)}
-              title={previewVisible ? 'Hide preview' : 'Show preview'}
-              className="p-1.5 rounded-md text-white/40 hover:text-white hover:bg-white/5 transition-colors"
-            >
-              {previewVisible ? (
-                <PanelRightClose className="w-4 h-4" />
-              ) : (
-                <PanelRightOpen className="w-4 h-4" />
-              )}
-            </button>
-          </div>
-        </div>
-
-        {/* Editor area */}
-        <div className="flex-1 min-h-0">
-          <CodeEditor
-            files={files}
-            activeFile={activeFile}
-            onFileChange={handleFileChange}
-            onActiveFileChange={setActiveFile}
-          />
-        </div>
-
-        {/* Chat panel at bottom */}
-        <div className="shrink-0 border-t border-white/5 bg-[#0a0a12]">
-          {/* Chat messages (scrollable, limited height) */}
-          {chatMessages.length > 0 && (
-            <div className="max-h-[200px] overflow-y-auto px-3 py-2 space-y-2 border-b border-white/5">
-              {chatMessages.map((msg, i) => {
-                const isUser = msg.role === 'user';
-                const displayText = isUser ? msg.content : extractExplanation(msg.content);
-                if (!displayText) return null;
-
-                return (
-                  <div key={i} className={`flex gap-2 ${isUser ? 'justify-end' : 'justify-start'}`}>
-                    {!isUser && (
-                      <div className="w-6 h-6 rounded-full bg-blue-600/20 flex items-center justify-center shrink-0 mt-0.5">
-                        <Bot className="w-3.5 h-3.5 text-blue-400" />
-                      </div>
-                    )}
-                    <div
-                      className={`max-w-[80%] rounded-lg px-3 py-2 text-xs leading-relaxed whitespace-pre-wrap ${
-                        isUser
-                          ? 'bg-blue-600/20 text-blue-100 border border-blue-500/20'
-                          : 'bg-white/5 text-white/70 border border-white/5'
-                      }`}
+            {fwOpen && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setFwOpen(false)} />
+                <div className="absolute right-0 top-full mt-1 w-36 bg-[#12121a] border border-white/10 rounded-lg shadow-xl z-50 py-1">
+                  {(['html', 'react', 'vue', 'svelte', 'vanilla'] as Framework[]).map(fw => (
+                    <button
+                      key={fw}
+                      onClick={() => switchFramework(fw)}
+                      className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${framework === fw ? 'bg-blue-600/20 text-blue-400' : 'text-white/60 hover:bg-white/5'}`}
                     >
-                      {displayText}
+                      {fw.charAt(0).toUpperCase() + fw.slice(1)}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Mode toggle */}
+        <div className="px-4 py-2 border-b border-white/5">
+          <div className="flex items-center gap-1 p-0.5 rounded-lg bg-white/5">
+            {(['plan', 'agent'] as Mode[]).map(m => (
+              <button
+                key={m}
+                onClick={() => setMode(m)}
+                className={`flex-1 py-1.5 rounded-md text-xs font-medium transition-all ${
+                  mode === m ? 'bg-white/10 text-white shadow-sm' : 'text-white/40 hover:text-white/60'
+                }`}
+              >
+                {m === 'plan' ? '💡 Plan' : '⚡ Agent'}
+              </button>
+            ))}
+          </div>
+          <p className="text-[10px] text-white/25 mt-1.5 text-center">
+            {mode === 'plan' ? 'Discuss and plan before coding' : 'AI writes code directly'}
+          </p>
+        </div>
+
+        {/* Chat messages */}
+        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+          {messages.length === 0 && (
+            <div className="flex flex-col items-center justify-center h-full">
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-600/20 to-cyan-500/20 border border-blue-500/20 flex items-center justify-center mb-4">
+                <Sparkles className="w-8 h-8 text-blue-400" />
+              </div>
+              <h3 className="text-lg font-semibold text-white mb-1">What do you want to build?</h3>
+              <p className="text-xs text-white/40 text-center mb-6 max-w-[280px]">
+                Describe your app and the AI will build it. You can iterate with follow-up prompts.
+              </p>
+              <div className="space-y-2 w-full">
+                {STARTERS.map(s => (
+                  <button
+                    key={s.label}
+                    onClick={() => handleSend(s.prompt)}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white/[0.03] border border-white/5 hover:bg-white/[0.06] hover:border-white/10 transition-all text-left group"
+                  >
+                    <div className="w-8 h-8 rounded-lg bg-blue-600/10 flex items-center justify-center shrink-0 group-hover:bg-blue-600/20 transition-colors">
+                      <s.icon className="w-4 h-4 text-blue-400" />
                     </div>
-                    {isUser && (
-                      <div className="w-6 h-6 rounded-full bg-purple-600/20 flex items-center justify-center shrink-0 mt-0.5">
-                        <User className="w-3.5 h-3.5 text-purple-400" />
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-              <div ref={chatEndRef} />
+                    <span className="text-xs text-white/60 group-hover:text-white/80 transition-colors">{s.label}</span>
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 
-          {/* Input */}
-          <div className="flex items-end gap-2 px-3 py-2.5">
+          <AnimatePresence>
+            {messages.map(msg => (
+              <motion.div
+                key={msg.id}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+              >
+                <div className={`max-w-[90%] ${msg.role === 'user' ? 'order-2' : ''}`}>
+                  {/* Avatar + name */}
+                  <div className={`flex items-center gap-2 mb-1 ${msg.role === 'user' ? 'justify-end' : ''}`}>
+                    {msg.role === 'assistant' && (
+                      <div className="w-5 h-5 rounded-md bg-gradient-to-br from-blue-600 to-cyan-500 flex items-center justify-center">
+                        <Bot className="w-3 h-3 text-white" />
+                      </div>
+                    )}
+                    <span className="text-[10px] text-white/30">{msg.role === 'user' ? 'You' : 'XERON'}</span>
+                    {msg.mode === 'plan' && <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400">Plan</span>}
+                  </div>
+
+                  {/* Message bubble */}
+                  <div className={`px-3 py-2.5 rounded-xl text-sm leading-relaxed ${
+                    msg.role === 'user'
+                      ? 'bg-blue-600/20 text-white/90 border border-blue-500/20'
+                      : 'bg-white/[0.04] text-white/80 border border-white/5'
+                  }`}>
+                    {msg.isStreaming && !msg.content ? (
+                      <div className="flex items-center gap-1.5">
+                        <div className="flex gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-bounce" style={{ animationDelay: '0ms' }} />
+                          <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-bounce" style={{ animationDelay: '150ms' }} />
+                          <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+                        </div>
+                        <span className="text-xs text-white/30">Thinking...</span>
+                      </div>
+                    ) : (
+                      <div className="whitespace-pre-wrap text-xs">{getDisplayText(msg.content)}</div>
+                    )}
+                  </div>
+
+                  {/* File changes indicator */}
+                  {msg.files && Object.keys(msg.files).length > 0 && (
+                    <div className="mt-2 space-y-1">
+                      <p className="text-[10px] text-white/30">
+                        {Object.keys(msg.files).length} file{Object.keys(msg.files).length > 1 ? 's' : ''} created
+                      </p>
+                      {Object.keys(msg.files).map(name => (
+                        <button
+                          key={name}
+                          onClick={() => { setActiveFile(name); setRightTab('code'); }}
+                          className="flex items-center gap-2 px-2 py-1 rounded-md bg-green-500/10 border border-green-500/20 text-green-400 text-[11px] hover:bg-green-500/20 transition-colors w-full text-left"
+                        >
+                          <FileCode2 className="w-3 h-3 shrink-0" />
+                          {name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            ))}
+          </AnimatePresence>
+          <div ref={chatEndRef} />
+        </div>
+
+        {/* Chat input */}
+        <div className="px-4 py-3 border-t border-white/5">
+          <div className="flex items-end gap-2 rounded-xl bg-white/[0.04] border border-white/8 p-2">
             <textarea
               ref={inputRef}
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
+              value={input}
+              onChange={e => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={
-                isGenerating
-                  ? 'AI is generating...'
-                  : 'Describe what you want to build or change...'
-              }
-              disabled={isGenerating}
+              placeholder={mode === 'plan' ? 'Ask a question or plan your app...' : 'Describe what you want to build...'}
               rows={1}
-              className="flex-1 resize-none bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-white/25 outline-none focus:border-blue-500/50 transition-colors disabled:opacity-40 max-h-[100px] overflow-y-auto"
-              style={{ minHeight: '38px' }}
+              className="flex-1 bg-transparent text-sm text-white placeholder:text-white/25 outline-none resize-none min-h-[36px] max-h-[120px] py-1"
+              style={{ height: 'auto' }}
+              onInput={e => { const t = e.target as HTMLTextAreaElement; t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, 120) + 'px'; }}
             />
             <button
-              onClick={handleSubmit}
-              disabled={isGenerating || !inputValue.trim()}
-              className="shrink-0 h-[38px] w-[38px] rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-30 disabled:hover:bg-blue-600 flex items-center justify-center transition-colors"
+              onClick={() => handleSend()}
+              disabled={!input.trim() || isGenerating}
+              className={`p-2 rounded-lg transition-all shrink-0 ${
+                input.trim() && !isGenerating
+                  ? 'bg-blue-600 text-white hover:bg-blue-700'
+                  : 'bg-white/5 text-white/20'
+              }`}
             >
-              {isGenerating ? (
-                <Loader2 className="w-4 h-4 text-white animate-spin" />
-              ) : (
-                <Send className="w-4 h-4 text-white" />
-              )}
+              {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
             </button>
+          </div>
+          <div className="flex items-center justify-between mt-1.5 px-1">
+            <span className="text-[10px] text-white/20">Enter to send · Shift+Enter new line</span>
+            <span className="text-[10px] text-white/20">Claude Opus 4.6</span>
           </div>
         </div>
       </div>
 
-      {/* ── DRAG HANDLE ──────────────────────────────────────────── */}
-      {previewVisible && (
-        <div
-          onMouseDown={handleDragStart}
-          className="w-1.5 cursor-col-resize bg-white/[0.02] hover:bg-blue-500/20 transition-colors flex items-center justify-center shrink-0 group"
-        >
-          <GripVertical className="w-3 h-3 text-white/10 group-hover:text-blue-400/50 transition-colors" />
-        </div>
-      )}
+      {/* ════════════════════════════════════════════════════════════════
+          RIGHT PANEL — Preview / Code
+         ════════════════════════════════════════════════════════════════ */}
+      <div className="flex-1 flex flex-col min-w-0 bg-[#0c0c14]">
+        {/* Tabs */}
+        <div className="flex items-center justify-between px-4 py-2 border-b border-white/5 bg-[#0a0a0f]">
+          <div className="flex items-center gap-1 p-0.5 rounded-lg bg-white/5">
+            <button
+              onClick={() => setRightTab('preview')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                rightTab === 'preview' ? 'bg-white/10 text-white' : 'text-white/40 hover:text-white/60'
+              }`}
+            >
+              <Eye className="w-3.5 h-3.5" /> Preview
+            </button>
+            <button
+              onClick={() => setRightTab('code')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                rightTab === 'code' ? 'bg-white/10 text-white' : 'text-white/40 hover:text-white/60'
+              }`}
+            >
+              <Code2 className="w-3.5 h-3.5" /> Code
+            </button>
+          </div>
 
-      {/* ── RIGHT: Sandbox Preview ───────────────────────────────── */}
-      {previewVisible && (
-        <div className="min-w-0 min-h-0 shrink-0" style={{ width: `${previewWidth}%` }}>
-          <SandboxPreview files={files} framework={framework} className="h-full rounded-none border-0" />
+          {/* Quick actions */}
+          <div className="flex items-center gap-1">
+            {[
+              { icon: Sparkles, label: 'Generate', action: () => { setMode('agent'); inputRef.current?.focus(); } },
+              { icon: Bug, label: 'Fix', action: () => handleSend('Fix any bugs or issues in the current code') },
+              { icon: BookOpen, label: 'Explain', action: () => { setMode('plan'); handleSend('Explain how this code works'); } },
+            ].map(a => (
+              <button
+                key={a.label}
+                onClick={a.action}
+                disabled={isGenerating}
+                className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] text-white/40 hover:text-white/70 hover:bg-white/5 transition-colors disabled:opacity-30"
+              >
+                <a.icon className="w-3 h-3" /> {a.label}
+              </button>
+            ))}
+          </div>
         </div>
-      )}
+
+        {/* Content */}
+        <div className="flex-1 min-h-0">
+          {rightTab === 'preview' ? (
+            <SandboxPreview files={files} framework={framework} className="h-full rounded-none border-0" />
+          ) : (
+            <div className="flex h-full">
+              <FileTree
+                files={files}
+                activeFile={activeFile}
+                onSelectFile={setActiveFile}
+                onCreateFile={name => setFiles(prev => ({ ...prev, [name]: '' }))}
+                onDeleteFile={name => {
+                  const next = { ...files };
+                  delete next[name];
+                  setFiles(next);
+                  if (activeFile === name) setActiveFile(Object.keys(next)[0] || '');
+                }}
+                onRenameFile={(old, nw) => {
+                  const next = { ...files };
+                  next[nw] = next[old];
+                  delete next[old];
+                  setFiles(next);
+                  if (activeFile === old) setActiveFile(nw);
+                }}
+              />
+              <div className="flex-1 min-w-0">
+                <CodeEditor
+                  files={files}
+                  activeFile={activeFile}
+                  onFileChange={(name, content) => setFiles(prev => ({ ...prev, [name]: content }))}
+                  onActiveFileChange={setActiveFile}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
