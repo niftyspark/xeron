@@ -15,62 +15,88 @@ export default function DashboardLayout({
   const { sidebarOpen } = useUI();
   const { token, setUser } = useUser();
   const [ready, setReady] = useState(false);
+  const [error, setError] = useState('');
   const didAuth = useRef(false);
 
   useEffect(() => {
-    // Already have token from persisted store
-    if (token) {
+    // Already have a REAL JWT token (not the old fake 'local-session')
+    if (token && token !== 'local-session' && token.includes('.')) {
       setReady(true);
       return;
     }
 
-    // Check localStorage directly
+    // Check localStorage for a real JWT
     try {
       const raw = localStorage.getItem('xeron-user');
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (parsed?.state?.token) {
+        const t = parsed?.state?.token;
+        if (t && t !== 'local-session' && t.includes('.')) {
           setReady(true);
           return;
+        }
+        // Clear invalid token
+        if (t === 'local-session' || (t && !t.includes('.'))) {
+          parsed.state.token = null;
+          parsed.state.isAuthenticated = false;
+          localStorage.setItem('xeron-user', JSON.stringify(parsed));
         }
       }
     } catch {}
 
-    // No token — auto-create guest
-    if (didAuth.current) {
-      setReady(true);
-      return;
-    }
+    // No valid token — create guest account
+    if (didAuth.current) return;
     didAuth.current = true;
 
-    fetch('/api/auth/guest', { method: 'POST' })
-      .then(res => {
-        if (!res.ok) throw new Error('Guest auth failed');
-        return res.json();
-      })
-      .then(({ token: t, user }) => {
+    const createGuest = async () => {
+      try {
+        // Ensure DB tables exist first
+        await fetch('/api/setup').catch(() => {});
+
+        const res = await fetch('/api/auth/guest', { method: 'POST' });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || `Auth failed: ${res.status}`);
+        }
+        const { token: t, user } = await res.json();
+        if (!t || !t.includes('.')) {
+          throw new Error('Invalid token received');
+        }
         setUser({
           userId: user.id,
           walletAddress: user.walletAddress,
           displayName: user.displayName,
           token: t,
         });
-      })
-      .catch(err => {
-        console.error('Auto auth failed:', err);
-        // Create a temporary local-only session so the UI doesn't crash
-        const tempId = crypto.randomUUID();
-        setUser({
-          userId: tempId,
-          walletAddress: `0x${'0'.repeat(40)}`,
-          displayName: 'Guest',
-          token: 'local-session',
-        });
-      })
-      .finally(() => setReady(true));
+        setReady(true);
+      } catch (err: any) {
+        console.error('Guest auth failed:', err);
+        setError(err.message || 'Failed to create account');
+        // Retry once
+        setTimeout(async () => {
+          try {
+            const res = await fetch('/api/auth/guest', { method: 'POST' });
+            if (res.ok) {
+              const { token: t, user } = await res.json();
+              if (t && t.includes('.')) {
+                setUser({
+                  userId: user.id,
+                  walletAddress: user.walletAddress,
+                  displayName: user.displayName,
+                  token: t,
+                });
+                setError('');
+              }
+            }
+          } catch {}
+          setReady(true);
+        }, 2000);
+      }
+    };
+
+    createGuest();
   }, [token, setUser]);
 
-  // Keyboard shortcuts
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
@@ -87,7 +113,8 @@ export default function DashboardLayout({
       <div className="flex h-screen items-center justify-center bg-[#0a0a0f]">
         <div className="flex flex-col items-center gap-3">
           <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-          <p className="text-xs text-white/30">Loading XERON...</p>
+          <p className="text-xs text-white/30">Setting up XERON...</p>
+          {error && <p className="text-xs text-red-400 max-w-xs text-center">{error}</p>}
         </div>
       </div>
     );

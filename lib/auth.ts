@@ -1,8 +1,9 @@
 import { SignJWT, jwtVerify } from 'jose';
 
-const secret = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'xeron-default-secret-key-32-chars!!'
-);
+// Stable secret - same across all serverless function instances
+// In production, set JWT_SECRET env var for security
+const JWT_SECRET_VALUE = process.env.JWT_SECRET || 'xeron-platform-jwt-secret-2024-stable-key';
+const secret = new TextEncoder().encode(JWT_SECRET_VALUE);
 
 export async function signToken(payload: { userId: string; walletAddress: string }) {
   return new SignJWT(payload)
