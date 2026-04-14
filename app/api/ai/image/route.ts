@@ -13,6 +13,13 @@ const MODELS: Record<string, string> = {
 
 export async function POST(req: NextRequest) {
   try {
+    // Auth required
+    const { verifyToken, getTokenFromHeaders } = await import('@/lib/auth');
+    const token = getTokenFromHeaders(req.headers);
+    if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const payload = await verifyToken(token);
+    if (!payload?.userId) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+
     const body = await req.json();
     const { prompt, model = 'flux-schnell', negativePrompt, width, height, steps } = body;
 

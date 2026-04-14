@@ -194,10 +194,11 @@ export function ChatInterface() {
     setGeneratingImage(true);
 
     try {
+      const { getAuthHeaders } = await import('@/lib/client-auth');
       const res = await fetch('/api/ai/image', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt, model: 'flux' }),
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ prompt, model: 'flux-schnell' }),
       });
 
       if (!res.ok) {

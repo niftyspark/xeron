@@ -20,23 +20,27 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ── Load user memories if authenticated ──────────────────────────
-    let memoriesContext = '';
+    // ── Auth required ──────────────────────────────────────────────
     const token = getTokenFromHeaders(req.headers);
-    if (token) {
-      try {
-        const payload = await verifyToken(token);
-        if (payload?.userId) {
-          const memories = await getRelevantMemories(payload.userId as string, '', 10);
-          if (memories.length > 0) {
-            memoriesContext = '\n\n## YOUR PERSISTENT MEMORIES ABOUT THIS USER:\n' +
-              memories.map(m => `- [${m.category}] ${m.content}`).join('\n') +
-              '\n\nUse these memories to personalize your responses. Reference them when relevant. If the user tells you something new, acknowledge it.';
-          }
-        }
-      } catch {
-        // Auth failed, continue without memories
+    if (!token) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const authPayload = await verifyToken(token);
+    if (!authPayload?.userId) {
+      return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+    }
+
+    // ── Load user memories ──────────────────────────────────────────
+    let memoriesContext = '';
+    try {
+      const memories = await getRelevantMemories(authPayload.userId as string, '', 10);
+      if (memories.length > 0) {
+        memoriesContext = '\n\n## YOUR PERSISTENT MEMORIES ABOUT THIS USER:\n' +
+          memories.map(m => `- [${m.category}] ${m.content}`).join('\n') +
+          '\n\nUse these memories to personalize your responses. Reference them when relevant. If the user tells you something new, acknowledge it.';
       }
+    } catch {
+      // Memory loading failed, continue without
     }
 
     // ── Build system prompt ──────────────────────────────────────────
