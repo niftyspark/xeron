@@ -44,7 +44,7 @@ export function useScheduledTasks() {
   const createTask = useCallback(async (task: any) => {
     const token = getClientToken();
     if (!token) {
-      toast.error('Please sign in to create tasks');
+      toast.error('Session expired. Please refresh the page.');
       return null;
     }
     try {

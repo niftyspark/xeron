@@ -9,6 +9,12 @@ import { ensureTables } from '@/lib/ensure-tables';
 
 export async function POST(req: NextRequest) {
   try {
+    if (!process.env.DATABASE_URL) {
+      return NextResponse.json(
+        { error: 'Server configuration error. Please contact admin.' },
+        { status: 503 }
+      );
+    }
     await ensureTables();
     const { address, signature, message } = await req.json();
 

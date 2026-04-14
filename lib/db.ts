@@ -2,25 +2,40 @@ import { neon } from '@neondatabase/serverless';
 import { drizzle } from 'drizzle-orm/neon-http';
 import * as schema from './schema';
 
-function getDb() {
-  const databaseUrl = process.env.DATABASE_URL;
-  if (!databaseUrl) {
-    throw new Error('DATABASE_URL is not set');
+function createDb() {
+  const url = process.env.DATABASE_URL;
+  if (!url) return null;
+  try {
+    return drizzle(neon(url), { schema });
+  } catch {
+    return null;
   }
-  const sql = neon(databaseUrl);
-  return drizzle(sql, { schema });
 }
 
-// Lazy singleton
-let _db: ReturnType<typeof getDb> | null = null;
+let _db: ReturnType<typeof drizzle> | null = null;
+let _tried = false;
 
-export const db = new Proxy({} as ReturnType<typeof getDb>, {
+function getDb() {
+  if (!_tried) {
+    _db = createDb() as any;
+    _tried = true;
+  }
+  return _db;
+}
+
+// Proxy that lazily initializes and gives clear errors
+export const db = new Proxy({} as ReturnType<typeof drizzle>, {
   get(_target, prop) {
-    if (!_db) {
-      _db = getDb();
+    const instance = getDb();
+    if (!instance) {
+      throw new Error('DB_NOT_CONFIGURED');
     }
-    return (_db as any)[prop];
+    return (instance as any)[prop];
   },
 });
+
+export function isDbAvailable(): boolean {
+  return !!getDb();
+}
 
 export { schema };

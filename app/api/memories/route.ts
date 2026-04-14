@@ -1,101 +1,79 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyToken, getTokenFromHeaders } from '@/lib/auth';
+import { requireAuth } from '@/lib/api-guard';
 import { db, schema } from '@/lib/db';
 import { eq, desc, and } from 'drizzle-orm';
 import { ensureTables } from '@/lib/ensure-tables';
 
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requireAuth(req.headers);
+    if (auth instanceof NextResponse) return auth;
+
     await ensureTables();
-    const token = getTokenFromHeaders(req.headers);
-    if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    const payload = await verifyToken(token);
-    if (!payload) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+    const category = new URL(req.url).searchParams.get('category');
 
-    const { searchParams } = new URL(req.url);
-    const category = searchParams.get('category');
-
-    const conditions = [eq(schema.memories.userId, payload.userId), eq(schema.memories.isActive, true)];
-    if (category) {
-      conditions.push(eq(schema.memories.category, category));
-    }
+    const conditions: any[] = [eq(schema.memories.userId, auth.userId), eq(schema.memories.isActive, true)];
+    if (category) conditions.push(eq(schema.memories.category, category));
 
     const memories = await db.query.memories.findMany({
       where: and(...conditions),
       orderBy: [desc(schema.memories.importance), desc(schema.memories.createdAt)],
     });
-
     return NextResponse.json(memories);
-  } catch (err) {
-    return NextResponse.json({ error: 'Server error' }, { status: 500 });
+  } catch (err: any) {
+    console.error('GET memories:', err?.message);
+    return NextResponse.json({ error: 'Failed to load memories' }, { status: 500 });
   }
 }
 
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requireAuth(req.headers);
+    if (auth instanceof NextResponse) return auth;
+
     await ensureTables();
-    const token = getTokenFromHeaders(req.headers);
-    if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    const payload = await verifyToken(token);
-    if (!payload) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
-
     const { category, content, importance } = await req.json();
+    if (!content) return NextResponse.json({ error: 'Content is required' }, { status: 400 });
 
-    const [memory] = await db
-      .insert(schema.memories)
-      .values({
-        userId: payload.userId,
-        category: category || 'fact',
-        content,
-        importance: importance || 0.5,
-      })
-      .returning();
+    const [memory] = await db.insert(schema.memories).values({
+      userId: auth.userId,
+      category: category || 'fact',
+      content,
+      importance: importance || 0.5,
+    }).returning();
 
     return NextResponse.json(memory);
-  } catch (err) {
-    return NextResponse.json({ error: 'Server error' }, { status: 500 });
+  } catch (err: any) {
+    console.error('POST memories:', err?.message);
+    return NextResponse.json({ error: 'Failed to add memory' }, { status: 500 });
   }
 }
 
 export async function DELETE(req: NextRequest) {
   try {
-    const token = getTokenFromHeaders(req.headers);
-    if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    const payload = await verifyToken(token);
-    if (!payload) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+    const auth = await requireAuth(req.headers);
+    if (auth instanceof NextResponse) return auth;
 
-    // Check for clearAll in request body
+    // Check for clearAll
     try {
       const body = await req.json();
       if (body?.clearAll) {
-        await db
-          .update(schema.memories)
+        await db.update(schema.memories)
           .set({ isActive: false })
-          .where(
-            and(
-              eq(schema.memories.userId, payload.userId),
-              eq(schema.memories.isActive, true)
-            )
-          );
-        return NextResponse.json({ success: true, cleared: true });
+          .where(and(eq(schema.memories.userId, auth.userId), eq(schema.memories.isActive, true)));
+        return NextResponse.json({ success: true });
       }
-    } catch {
-      // No body or invalid JSON, fall through to single-delete by id
-    }
+    } catch {}
 
-    const { searchParams } = new URL(req.url);
-    const id = searchParams.get('id');
-    if (!id) return NextResponse.json({ error: 'Missing id or clearAll' }, { status: 400 });
+    const id = new URL(req.url).searchParams.get('id');
+    if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
 
-    await db
-      .update(schema.memories)
-      .set({ isActive: false })
-      .where(eq(schema.memories.id, id));
-
+    await db.update(schema.memories).set({ isActive: false }).where(eq(schema.memories.id, id));
     return NextResponse.json({ success: true });
-  } catch (err) {
-    return NextResponse.json({ error: 'Server error' }, { status: 500 });
+  } catch (err: any) {
+    console.error('DELETE memories:', err?.message);
+    return NextResponse.json({ error: 'Failed to delete memory' }, { status: 500 });
   }
 }

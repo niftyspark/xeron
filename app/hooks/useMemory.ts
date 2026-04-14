@@ -40,7 +40,7 @@ export function useMemory() {
   const addMemory = useCallback(async (category: string, content: string, importance = 0.5) => {
     const token = getClientToken();
     if (!token) {
-      toast.error('Please sign in to add memories');
+      toast.error('Session expired. Please refresh the page.');
       return null;
     }
     try {
