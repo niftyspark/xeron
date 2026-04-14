@@ -42,9 +42,11 @@ export default function MemoryPage() {
 
   const handleAdd = async () => {
     if (!newMemory.content) return;
-    await addMemory(newMemory.category, newMemory.content, newMemory.importance);
-    setShowAdd(false);
-    setNewMemory({ category: 'fact', content: '', importance: 0.5 });
+    const result = await addMemory(newMemory.category, newMemory.content, newMemory.importance);
+    if (result) {
+      setShowAdd(false);
+      setNewMemory({ category: 'fact', content: '', importance: 0.5 });
+    }
   };
 
   return (

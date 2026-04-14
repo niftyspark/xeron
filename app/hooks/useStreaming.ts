@@ -21,11 +21,22 @@ export function useStreaming() {
       setStreaming(true);
 
       try {
+        // Get auth token for memory loading
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+        };
+        try {
+          const stored = localStorage.getItem('xeron-user');
+          if (stored) {
+            const parsed = JSON.parse(stored);
+            const token = parsed?.state?.token;
+            if (token) headers['Authorization'] = `Bearer ${token}`;
+          }
+        } catch {}
+
         const response = await fetch('/api/ai/chat', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers,
           body: JSON.stringify({ messages, model, skills: skills || [] }),
           signal: abortControllerRef.current.signal,
         });

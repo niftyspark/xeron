@@ -208,34 +208,40 @@ export default function CodeAgentPage() {
             if (chunk) {
               full += chunk;
 
-              // In agent mode: continuously extract code blocks and write to IDE live
               if (mode === 'agent') {
+                // AGENT MODE: never show raw text in chat.
+                // Parse completed code blocks -> write to IDE.
+                // Chat only shows file indicators, never code.
                 const extracted = parseCodeBlocks(full);
                 if (extracted) {
-                  // Write completed files to the editor in real-time
                   const newFileNames = Object.keys(extracted);
                   setActiveWritingFiles(newFileNames);
                   setFiles(prev => ({ ...prev, ...extracted }));
                   if (newFileNames.length > 0) {
                     setActiveFile(newFileNames[newFileNames.length - 1]);
                   }
-                  // Switch to code view so user sees files being written
                   setRightTab('code');
                   lastExtracted = extracted;
-
-                  // Chat only shows explanation text (strip code blocks)
-                  const explanation = full.replace(/```\S+\n[\s\S]*?```/g, '').trim();
+                  // Chat: show ONLY file names, no text
                   setMessages(prev => prev.map(m => m.id === assistantMsg.id
-                    ? { ...m, content: explanation, files: extracted }
+                    ? { ...m, content: '', files: extracted }
                     : m
                   ));
                 } else {
-                  // No code blocks yet, show explanation so far (strip partial blocks)
-                  const explanation = full.replace(/```\S+\n[\s\S]*$/g, '').replace(/```\S+\n[\s\S]*?```/g, '').trim();
-                  setMessages(prev => prev.map(m => m.id === assistantMsg.id
-                    ? { ...m, content: explanation }
-                    : m
-                  ));
+                  // Detect which file is currently being written (partial block)
+                  const partialMatch = full.match(/```(\S+)\n[^`]*$/);
+                  if (partialMatch) {
+                    const partialName = partialMatch[1];
+                    const displayName = partialName.includes('.') ? partialName : (LANG_TO_FILE[partialName.toLowerCase()] || partialName);
+                    setActiveWritingFiles([displayName]);
+                    setRightTab('code');
+                    // Chat: show nothing, just the writing indicator
+                    setMessages(prev => prev.map(m => m.id === assistantMsg.id
+                      ? { ...m, content: '' }
+                      : m
+                    ));
+                  }
+                  // else: AI is writing explanation text before code, show nothing yet
                 }
               } else {
                 // Plan mode: show full text in chat
@@ -251,19 +257,27 @@ export default function CodeAgentPage() {
 
       // Finalize
       const finalExtracted = parseCodeBlocks(full);
-      const explanation = full.replace(/```\S+\n[\s\S]*?```/g, '').trim();
+      // Strip ALL code blocks to get only explanation text
+      const explanation = full.replace(/```[\s\S]*?```/g, '').trim();
 
       if (finalExtracted && mode === 'agent') {
         setFiles(prev => ({ ...prev, ...finalExtracted }));
         setActiveFile(Object.keys(finalExtracted)[0]);
+        const fileCount = Object.keys(finalExtracted).length;
         setMessages(prev => prev.map(m => m.id === assistantMsg.id
-          ? { ...m, content: explanation || 'Done! Files have been created.', files: finalExtracted, isStreaming: false }
+          ? {
+              ...m,
+              content: explanation || `Created ${fileCount} file${fileCount > 1 ? 's' : ''}.`,
+              files: finalExtracted,
+              isStreaming: false,
+            }
           : m
         ));
-        setRightTab('preview');
+        // Switch to preview after a short delay so user sees the result
+        setTimeout(() => setRightTab('preview'), 500);
       } else {
         setMessages(prev => prev.map(m => m.id === assistantMsg.id
-          ? { ...m, content: explanation || full, isStreaming: false }
+          ? { ...m, content: mode === 'agent' ? (explanation || 'Done.') : (explanation || full), isStreaming: false }
           : m
         ));
       }

@@ -2,6 +2,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getSkillSystemPrompt } from '@/lib/skills';
+import { verifyToken, getTokenFromHeaders } from '@/lib/auth';
+import { getRelevantMemories } from '@/lib/ai';
 
 const API_URL = 'https://ai.api.4everland.org/api/v1/chat/completions';
 
@@ -10,7 +12,6 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { messages, model = 'anthropic/claude-opus-4.6', skills = [] } = body;
 
-    // Use server-side API key from environment variable
     const apiKey = process.env.FOUR_EVER_LAND_API_KEY;
     if (!apiKey) {
       return NextResponse.json(
@@ -19,7 +20,26 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Build system prompt with skills
+    // ── Load user memories if authenticated ──────────────────────────
+    let memoriesContext = '';
+    const token = getTokenFromHeaders(req.headers);
+    if (token) {
+      try {
+        const payload = await verifyToken(token);
+        if (payload?.userId) {
+          const memories = await getRelevantMemories(payload.userId as string, '', 10);
+          if (memories.length > 0) {
+            memoriesContext = '\n\n## YOUR PERSISTENT MEMORIES ABOUT THIS USER:\n' +
+              memories.map(m => `- [${m.category}] ${m.content}`).join('\n') +
+              '\n\nUse these memories to personalize your responses. Reference them when relevant. If the user tells you something new, acknowledge it.';
+          }
+        }
+      } catch {
+        // Auth failed, continue without memories
+      }
+    }
+
+    // ── Build system prompt ──────────────────────────────────────────
     const basePrompt = `You are XERON, a highly capable autonomous AI agent on the Base blockchain. You have persistent memory, can execute tasks autonomously, and learn from interactions.
 
 ## Your Core Capabilities:
@@ -30,23 +50,16 @@ export async function POST(req: NextRequest) {
 - Self-learning from user feedback and patterns
 - 500+ app integrations via Composio (GitHub, Slack, Notion, Gmail, Discord, etc.)
 
-## Tool Execution:
-When a user asks you to perform an action on an external service (like creating a GitHub issue, sending a Slack message, etc.), tell them to connect the service first from the Tools page if not connected. If connected, describe the action you would take using the Composio tool system.
-
-Available integration actions include:
-- GITHUB_CREATE_ISSUE, GITHUB_CREATE_PR, GITHUB_STAR_REPO, etc.
-- SLACK_SEND_MESSAGE, SLACK_CREATE_CHANNEL, etc.
-- NOTION_CREATE_PAGE, NOTION_ADD_BLOCK, etc.
-- GMAIL_SEND_EMAIL, GMAIL_GET_EMAILS, etc.
-- And 1000+ more actions across 500+ apps.
+## Persistent Memory:
+You have a persistent memory system. Memories about the user are injected below (if any exist). When the user tells you personal facts, preferences, or important information, acknowledge that you will remember it. The system automatically extracts and saves memories after each conversation.
 
 ## Guidelines:
 - Be proactive and suggest actions when appropriate
-- Remember important details about the user
+- Remember and reference details about the user from your memories
 - Break complex tasks into manageable steps
 - Show your reasoning process for complex queries
 - Be concise but thorough
-- When users ask about integrations, explain they can connect apps from the Tools page`;
+- When users ask about integrations, explain they can connect apps from the Tools page${memoriesContext}`;
 
     const skillPrompt = getSkillSystemPrompt(skills);
 
@@ -55,7 +68,7 @@ Available integration actions include:
       ...messages.filter((m: any) => m.role !== 'system'),
     ];
 
-    // Forward to 4everland API with streaming
+    // ── Forward to 4everland API with streaming ─────────────────────
     const response = await fetch(API_URL, {
       method: 'POST',
       headers: {
@@ -83,7 +96,6 @@ Available integration actions include:
       );
     }
 
-    // Stream the response through
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
