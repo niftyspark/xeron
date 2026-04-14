@@ -1,36 +1,26 @@
+export const dynamic = 'force-dynamic';
+
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { users } from '@/lib/schema';
-import { eq } from 'drizzle-orm';
 import { signToken } from '@/lib/auth';
+import { ensureTables } from '@/lib/ensure-tables';
 
 export async function POST(req: NextRequest) {
   try {
-    const { guestId } = await req.json().catch(() => ({}));
+    await ensureTables();
+
+    const guestAddress = `0x${Array.from({ length: 40 }, () => 
+      Math.floor(Math.random() * 16).toString(16)
+    ).join('')}`;
     
-    let user;
-    
-    if (guestId) {
-      user = await db.query.users.findFirst({
-        where: (users, { eq }) => eq(users.id, guestId),
-      });
-    }
-    
-    if (!user) {
-      const guestAddress = `0x${Array.from({ length: 40 }, () => 
-        Math.floor(Math.random() * 16).toString(16)
-      ).join('')}`;
-      
-      const [newUser] = await db.insert(users)
-        .values({
-          walletAddress: guestAddress,
-          displayName: `Guest_${Math.floor(Math.random() * 10000)}`,
-          settings: { isGuest: true },
-        })
-        .returning();
-      
-      user = newUser;
-    }
+    const [user] = await db.insert(users)
+      .values({
+        walletAddress: guestAddress,
+        displayName: `Guest_${Math.floor(Math.random() * 10000)}`,
+        settings: { isGuest: true },
+      })
+      .returning();
     
     const token = await signToken({ userId: user.id, walletAddress: user.walletAddress });
     
@@ -42,8 +32,8 @@ export async function POST(req: NextRequest) {
         walletAddress: user.walletAddress,
       },
     });
-  } catch (error) {
-    console.error('Guest auth error:', error);
-    return NextResponse.json({ error: 'Auth failed' }, { status: 500 });
+  } catch (error: any) {
+    console.error('Guest auth error:', error?.message || error);
+    return NextResponse.json({ error: error?.message || 'Auth failed' }, { status: 500 });
   }
 }

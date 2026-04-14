@@ -5,7 +5,6 @@ import { Header } from '@/app/components/dashboard/Header';
 import { CommandPalette } from '@/app/components/dashboard/CommandPalette';
 import { useUI } from '@/app/store/useUI';
 import { useUser } from '@/app/store/useUser';
-import { useSkills } from '@/app/store/useSkills';
 import { useEffect, useState, useRef } from 'react';
 
 export default function DashboardLayout({
@@ -14,74 +13,76 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const { sidebarOpen } = useUI();
-  const { token, isAuthenticated, setUser } = useUser();
-  const [mounted, setMounted] = useState(false);
-  const [authChecked, setAuthChecked] = useState(false);
-  const autoAuthRef = useRef(false);
+  const { token, setUser } = useUser();
+  const [ready, setReady] = useState(false);
+  const didAuth = useRef(false);
 
-  // Mount + hydrate
   useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  // Auto-authenticate: if no token after mount, create guest account
-  useEffect(() => {
-    if (!mounted) return;
-    if (autoAuthRef.current) return;
-
-    // Check if already authenticated
-    if (token && isAuthenticated) {
-      setAuthChecked(true);
+    // Already have token from persisted store
+    if (token) {
+      setReady(true);
       return;
     }
 
-    // Also check localStorage directly (zustand might not have hydrated yet)
+    // Check localStorage directly
     try {
       const raw = localStorage.getItem('xeron-user');
       if (raw) {
         const parsed = JSON.parse(raw);
         if (parsed?.state?.token) {
-          setAuthChecked(true);
+          setReady(true);
           return;
         }
       }
     } catch {}
 
-    // No token anywhere — auto-create guest account
-    autoAuthRef.current = true;
-    (async () => {
-      try {
-        const res = await fetch('/api/auth/guest', { method: 'POST' });
-        if (res.ok) {
-          const { token: newToken, user } = await res.json();
-          setUser({
-            userId: user.id,
-            walletAddress: user.walletAddress,
-            displayName: user.displayName,
-            token: newToken,
-          });
-        }
-      } catch (err) {
-        console.error('Auto guest auth failed:', err);
-      } finally {
-        setAuthChecked(true);
-      }
-    })();
-  }, [mounted, token, isAuthenticated, setUser]);
+    // No token — auto-create guest
+    if (didAuth.current) {
+      setReady(true);
+      return;
+    }
+    didAuth.current = true;
+
+    fetch('/api/auth/guest', { method: 'POST' })
+      .then(res => {
+        if (!res.ok) throw new Error('Guest auth failed');
+        return res.json();
+      })
+      .then(({ token: t, user }) => {
+        setUser({
+          userId: user.id,
+          walletAddress: user.walletAddress,
+          displayName: user.displayName,
+          token: t,
+        });
+      })
+      .catch(err => {
+        console.error('Auto auth failed:', err);
+        // Create a temporary local-only session so the UI doesn't crash
+        const tempId = crypto.randomUUID();
+        setUser({
+          userId: tempId,
+          walletAddress: `0x${'0'.repeat(40)}`,
+          displayName: 'Guest',
+          token: 'local-session',
+        });
+      })
+      .finally(() => setReady(true));
+  }, [token, setUser]);
 
   // Keyboard shortcuts
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
+    const down = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault();
         useUI.getState().toggleCommandPalette();
       }
     };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener('keydown', down);
+    return () => window.removeEventListener('keydown', down);
   }, []);
 
-  if (!mounted || !authChecked) {
+  if (!ready) {
     return (
       <div className="flex h-screen items-center justify-center bg-[#0a0a0f]">
         <div className="flex flex-col items-center gap-3">

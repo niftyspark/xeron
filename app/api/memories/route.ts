@@ -4,9 +4,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyToken, getTokenFromHeaders } from '@/lib/auth';
 import { db, schema } from '@/lib/db';
 import { eq, desc, and } from 'drizzle-orm';
+import { ensureTables } from '@/lib/ensure-tables';
 
 export async function GET(req: NextRequest) {
   try {
+    await ensureTables();
     const token = getTokenFromHeaders(req.headers);
     if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     const payload = await verifyToken(token);
@@ -33,6 +35,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    await ensureTables();
     const token = getTokenFromHeaders(req.headers);
     if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     const payload = await verifyToken(token);

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { useUser } from '@/app/store/useUser';
+import { getClientToken } from '@/lib/client-auth';
 import { toast } from 'sonner';
 
 interface ScheduledTask {
@@ -18,28 +18,12 @@ interface ScheduledTask {
   runCount: number;
 }
 
-function getToken(): string | null {
-  try {
-    const raw = localStorage.getItem('xeron-user');
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      return parsed?.state?.token || null;
-    }
-  } catch {}
-  return null;
-}
-
 export function useScheduledTasks() {
   const [tasks, setTasks] = useState<ScheduledTask[]>([]);
   const [loading, setLoading] = useState(false);
-  const { token: storeToken } = useUser();
-
-  const getAuthToken = useCallback(() => {
-    return storeToken || getToken();
-  }, [storeToken]);
 
   const fetchTasks = useCallback(async () => {
-    const token = getAuthToken();
+    const token = getClientToken();
     if (!token) return;
     setLoading(true);
     try {
@@ -48,17 +32,17 @@ export function useScheduledTasks() {
       });
       if (res.ok) {
         const data = await res.json();
-        setTasks(data);
+        setTasks(Array.isArray(data) ? data : []);
       }
     } catch (err) {
-      console.error('Failed to fetch tasks:', err);
+      console.error('Fetch tasks failed:', err);
     } finally {
       setLoading(false);
     }
-  }, [getAuthToken]);
+  }, []);
 
-  const createTask = useCallback(async (task: Omit<ScheduledTask, 'id' | 'lastRun' | 'nextRun' | 'runCount'>) => {
-    const token = getAuthToken();
+  const createTask = useCallback(async (task: any) => {
+    const token = getClientToken();
     if (!token) {
       toast.error('Please sign in to create tasks');
       return null;
@@ -74,23 +58,21 @@ export function useScheduledTasks() {
       });
       if (res.ok) {
         const data = await res.json();
-        setTasks((prev) => [data, ...prev]);
+        setTasks(prev => [data, ...prev]);
         toast.success('Task created');
         return data;
-      } else {
-        const err = await res.json().catch(() => ({}));
-        toast.error(err.error || 'Failed to create task');
-        return null;
       }
+      const err = await res.json().catch(() => ({ error: 'Failed' }));
+      toast.error(err.error || 'Failed to create task');
+      return null;
     } catch (err) {
-      console.error('Failed to create task:', err);
       toast.error('Failed to create task');
       return null;
     }
-  }, [getAuthToken]);
+  }, []);
 
   const toggleTask = useCallback(async (id: string) => {
-    const token = getAuthToken();
+    const token = getClientToken();
     if (!token) return;
     try {
       const res = await fetch('/api/tasks', {
@@ -102,17 +84,13 @@ export function useScheduledTasks() {
         body: JSON.stringify({ id, toggle: true }),
       });
       if (res.ok) {
-        setTasks((prev) =>
-          prev.map((t) => (t.id === id ? { ...t, isActive: !t.isActive } : t))
-        );
+        setTasks(prev => prev.map(t => t.id === id ? { ...t, isActive: !t.isActive } : t));
       }
-    } catch (err) {
-      console.error('Failed to toggle task:', err);
-    }
-  }, [getAuthToken]);
+    } catch {}
+  }, []);
 
   const deleteTask = useCallback(async (id: string) => {
-    const token = getAuthToken();
+    const token = getClientToken();
     if (!token) return;
     try {
       const res = await fetch(`/api/tasks?id=${id}`, {
@@ -120,14 +98,11 @@ export function useScheduledTasks() {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
-        setTasks((prev) => prev.filter((t) => t.id !== id));
+        setTasks(prev => prev.filter(t => t.id !== id));
         toast.success('Task deleted');
       }
-    } catch (err) {
-      console.error('Failed to delete task:', err);
-      toast.error('Failed to delete task');
-    }
-  }, [getAuthToken]);
+    } catch {}
+  }, []);
 
   return { tasks, loading, fetchTasks, createTask, toggleTask, deleteTask };
 }

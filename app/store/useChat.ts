@@ -21,26 +21,10 @@ export interface Conversation {
   updatedAt: Date;
 }
 
-// Helper to get auth token from localStorage (can't use hooks inside a store)
-function getAuthToken(): string | null {
-  if (typeof window === 'undefined') return null;
-  try {
-    const raw = localStorage.getItem('xeron-user');
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    return parsed?.state?.token || null;
-  } catch {
-    return null;
-  }
-}
+import { getClientToken, getAuthHeaders } from '@/lib/client-auth';
 
 function authHeaders(): Record<string, string> {
-  const token = getAuthToken();
-  if (!token) return { 'Content-Type': 'application/json' };
-  return {
-    'Content-Type': 'application/json',
-    Authorization: `Bearer ${token}`,
-  };
+  return getAuthHeaders();
 }
 
 interface ChatState {
