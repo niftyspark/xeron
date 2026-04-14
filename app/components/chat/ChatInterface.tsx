@@ -9,7 +9,8 @@ import { useUI } from '@/app/store/useUI';
 import { MessageBubble } from './MessageBubble';
 import { ChatInput } from './ChatInput';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Sparkles } from 'lucide-react';
+import { Sparkles, Loader2, ImageIcon } from 'lucide-react';
+import { toast } from 'sonner';
 
 export function ChatInterface() {
   const {
@@ -154,6 +155,72 @@ export function ChatInterface() {
     }
   };
 
+  const [generatingImage, setGeneratingImage] = useState(false);
+
+  const handleImageGenerate = async (prompt: string) => {
+    if (generatingImage) return;
+
+    let convId = activeConversationId;
+    if (!convId) {
+      const title = `Image: ${prompt.slice(0, 40)}...`;
+      const newConv = await createConversation(title, currentModel);
+      if (newConv) {
+        convId = newConv.id;
+        loadedConvRef.current.add(convId);
+      } else {
+        convId = crypto.randomUUID();
+        addConversation({
+          id: convId, title, model: currentModel, messages: [],
+          isPinned: false, createdAt: new Date(), updatedAt: new Date(),
+        });
+        loadedConvRef.current.add(convId);
+      }
+    }
+
+    // Add user message
+    const userMsg: ChatMessage = {
+      id: crypto.randomUUID(), role: 'user',
+      content: `🎨 Generate image: ${prompt}`, createdAt: new Date(),
+    };
+    addMessage(convId, userMsg);
+
+    // Add placeholder assistant message
+    const assistantMsg: ChatMessage = {
+      id: crypto.randomUUID(), role: 'assistant',
+      content: '🖼️ Generating image...', createdAt: new Date(), isStreaming: true,
+    };
+    addMessage(convId, assistantMsg);
+
+    setGeneratingImage(true);
+
+    try {
+      const res = await fetch('/api/ai/image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt, model: 'flux' }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Image generation failed');
+      }
+
+      const data = await res.json();
+
+      // Update the assistant message with the image
+      useChat.getState().updateMessage(
+        convId,
+        assistantMsg.id,
+        `![Generated Image](${data.image})\n\n*"${prompt}"* — Generated with ${data.model}`
+      );
+    } catch (err: any) {
+      useChat.getState().updateMessage(convId, assistantMsg.id, `Failed to generate image: ${err.message}`);
+      toast.error(err.message || 'Image generation failed');
+    } finally {
+      setGeneratingImage(false);
+    }
+  };
+
   return (
     <div className="flex flex-col h-full">
       {/* Messages */}
@@ -217,7 +284,12 @@ export function ChatInterface() {
       </div>
 
       {/* Input */}
-      <ChatInput onSend={handleSend} isStreaming={isStreaming} onStop={stopStream} />
+      <ChatInput
+        onSend={handleSend}
+        onImageGenerate={handleImageGenerate}
+        isStreaming={isStreaming || generatingImage}
+        onStop={stopStream}
+      />
     </div>
   );
 }

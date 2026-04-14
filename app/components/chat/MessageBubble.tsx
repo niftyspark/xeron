@@ -155,6 +155,18 @@ export function MessageBubble({ message }: MessageBubbleProps) {
                   blockquote({ children }) {
                     return <blockquote className="border-l-2 border-blue-500/30 pl-3 italic text-white/50">{children}</blockquote>;
                   },
+                  img({ src, alt }) {
+                    return (
+                      <div className="my-3 rounded-xl overflow-hidden border border-white/10">
+                        <img
+                          src={src}
+                          alt={alt || 'Generated image'}
+                          className="w-full max-w-md rounded-xl"
+                          loading="lazy"
+                        />
+                      </div>
+                    );
+                  },
                 }}
               >
                 {message.content}

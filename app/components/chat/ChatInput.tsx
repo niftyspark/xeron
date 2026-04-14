@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Send, Square, Zap, Paperclip, Layers } from 'lucide-react';
+import { Send, Square, Zap, Paperclip, Layers, ImageIcon } from 'lucide-react';
 import { Button } from '@/app/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useUI } from '@/app/store/useUI';
@@ -11,11 +11,12 @@ import { IntegrationsPanel } from './IntegrationsPanel';
 
 interface ChatInputProps {
   onSend: (content: string) => void;
+  onImageGenerate?: (prompt: string) => void;
   isStreaming: boolean;
   onStop: () => void;
 }
 
-export function ChatInput({ onSend, isStreaming, onStop }: ChatInputProps) {
+export function ChatInput({ onSend, onImageGenerate, isStreaming, onStop }: ChatInputProps) {
   const [input, setInput] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -140,6 +141,23 @@ export function ChatInput({ onSend, isStreaming, onStop }: ChatInputProps) {
             >
               <Layers className="w-4 h-4" />
             </button>
+
+            {/* Image Generation Button */}
+            {onImageGenerate && (
+              <button
+                className="p-2 rounded-lg hover:bg-white/10 text-white/30 hover:text-pink-400 transition-colors"
+                title="Generate Image"
+                onClick={() => {
+                  if (input.trim()) {
+                    onImageGenerate(input.trim());
+                    setInput('');
+                  }
+                }}
+                disabled={!input.trim() || isStreaming}
+              >
+                <ImageIcon className="w-4 h-4" />
+              </button>
+            )}
           </div>
 
           <textarea
