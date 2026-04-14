@@ -8,7 +8,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Send, Sparkles, Bug, BookOpen, Code2, Eye, ChevronDown, ChevronRight,
   Loader2, Bot, User, FileCode2, Plus, Lightbulb, Wand2, MessageSquare, Square,
+  History, Trash2, PanelLeftClose, PanelLeftOpen,
 } from 'lucide-react';
+import { useCodeSessions, type CodeChatMsg, type CodeSession } from '@/app/store/useCodeSessions';
 
 const CodeEditor = dynamic(
   () => import('@/app/components/code/CodeEditor').then(m => ({ default: m.CodeEditor })),
@@ -113,22 +115,72 @@ function parseCodeBlocks(text: string): Record<string, string> | null {
 
 // ── Page ───────────────────────────────────────────────────────────────────
 export default function CodeAgentPage() {
+  const {
+    sessions, activeSessionId, createSession, deleteSession,
+    setActiveSession, updateSession, getActiveSession,
+  } = useCodeSessions();
+
+  const activeSession = getActiveSession();
+
   const [mode, setMode] = useState<Mode>('agent');
-  const [framework, setFramework] = useState<Framework>('html');
-  const [files, setFiles] = useState<Record<string, string>>(TEMPLATES.html);
-  const [activeFile, setActiveFile] = useState('index.html');
+  const [framework, setFramework] = useState<Framework>(
+    (activeSession?.framework as Framework) || 'html'
+  );
+  const [files, setFiles] = useState<Record<string, string>>(
+    activeSession?.files || TEMPLATES.html
+  );
+  const [activeFile, setActiveFile] = useState(
+    Object.keys(activeSession?.files || TEMPLATES.html)[0]
+  );
   const [rightTab, setRightTab] = useState<RightTab>('preview');
-  const [messages, setMessages] = useState<ChatMsg[]>([]);
+  const [messages, setMessages] = useState<ChatMsg[]>(
+    (activeSession?.messages as ChatMsg[]) || []
+  );
   const [input, setInput] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [fwOpen, setFwOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
+  // Sync local state to store whenever messages/files change
+  useEffect(() => {
+    if (activeSessionId && messages.length > 0) {
+      updateSession(activeSessionId, { messages: messages as any, files });
+    }
+  }, [messages, files]);
+
+  // Load session when switching
+  useEffect(() => {
+    if (activeSession) {
+      setFramework(activeSession.framework as Framework);
+      setFiles(activeSession.files);
+      setActiveFile(Object.keys(activeSession.files)[0]);
+      setMessages((activeSession.messages as ChatMsg[]) || []);
+    }
+  }, [activeSessionId]);
+
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // Create new session
+  const handleNewSession = useCallback(() => {
+    const fw = framework;
+    const tpl = TEMPLATES[fw];
+    const id = createSession(fw, tpl);
+    setFiles(tpl);
+    setActiveFile(Object.keys(tpl)[0]);
+    setMessages([]);
+    setRightTab('preview');
+  }, [framework, createSession]);
+
+  // Load a session from history
+  const handleLoadSession = useCallback((session: CodeSession) => {
+    setActiveSession(session.id);
+    setHistoryOpen(false);
+  }, [setActiveSession]);
 
   // Switch framework
   const switchFramework = useCallback((fw: Framework) => {
@@ -161,6 +213,19 @@ export default function CodeAgentPage() {
     const prompt = (text || input).trim();
     if (!prompt || isGenerating) return;
     setInput('');
+
+    // Auto-create session if none active
+    if (!activeSessionId) {
+      const id = createSession(framework, files);
+      // Update title from first prompt
+      updateSession(id, { title: prompt.slice(0, 50) });
+    } else {
+      // Update title from first message if still "New Project"
+      const sess = getActiveSession();
+      if (sess && sess.title === 'New Project' && sess.messages.length === 0) {
+        updateSession(activeSessionId, { title: prompt.slice(0, 50) });
+      }
+    }
 
     const userMsg: ChatMsg = { id: crypto.randomUUID(), role: 'user', content: prompt, mode };
     const assistantMsg: ChatMsg = { id: crypto.randomUUID(), role: 'assistant', content: '', mode, isStreaming: true };
@@ -377,14 +442,30 @@ export default function CodeAgentPage() {
         {/* Header */}
         <div className="px-4 py-3 border-b border-white/5 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-600 to-cyan-500 flex items-center justify-center">
-              <Code2 className="w-4 h-4 text-white" />
-            </div>
-            <span className="text-sm font-semibold text-white">Code Agent</span>
+            <button
+              onClick={() => setHistoryOpen(!historyOpen)}
+              className="p-1.5 rounded-md hover:bg-white/10 text-white/40 hover:text-white transition-colors"
+              title="History"
+            >
+              {historyOpen ? <PanelLeftClose className="w-4 h-4" /> : <History className="w-4 h-4" />}
+            </button>
+            <span className="text-sm font-semibold text-white truncate max-w-[120px]">
+              {activeSession?.title || 'Code Agent'}
+            </span>
           </div>
 
-          {/* Framework selector */}
-          <div className="relative">
+          <div className="flex items-center gap-1">
+            {/* New Chat */}
+            <button
+              onClick={handleNewSession}
+              className="p-1.5 rounded-md hover:bg-white/10 text-white/40 hover:text-white transition-colors"
+              title="New Chat"
+            >
+              <Plus className="w-4 h-4" />
+            </button>
+
+            {/* Framework selector */}
+            <div className="relative">
             <button
               onClick={() => setFwOpen(!fwOpen)}
               className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white/5 border border-white/10 text-xs text-white/60 hover:bg-white/10 transition-colors"
@@ -408,8 +489,52 @@ export default function CodeAgentPage() {
                 </div>
               </>
             )}
+            </div>
           </div>
         </div>
+
+        {/* History Panel */}
+        <AnimatePresence>
+          {historyOpen && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className="border-b border-white/5 overflow-hidden"
+            >
+              <div className="max-h-60 overflow-y-auto p-2">
+                {sessions.length === 0 ? (
+                  <p className="text-xs text-white/20 text-center py-4">No sessions yet</p>
+                ) : (
+                  sessions.map(sess => (
+                    <div
+                      key={sess.id}
+                      className={`flex items-center justify-between gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors mb-0.5 ${
+                        sess.id === activeSessionId
+                          ? 'bg-blue-600/15 border border-blue-500/20'
+                          : 'hover:bg-white/5'
+                      }`}
+                      onClick={() => handleLoadSession(sess)}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs text-white/70 truncate">{sess.title}</p>
+                        <p className="text-[10px] text-white/25">
+                          {sess.framework} · {sess.messages.length} msgs · {new Date(sess.updatedAt).toLocaleDateString()}
+                        </p>
+                      </div>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); deleteSession(sess.id); }}
+                        className="p-1 rounded text-white/15 hover:text-red-400 transition-colors shrink-0"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Mode toggle */}
         <div className="px-4 py-2 border-b border-white/5">
