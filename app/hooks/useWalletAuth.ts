@@ -34,12 +34,25 @@ export function useWalletAuth() {
 
         if (res.ok) {
           const { token: newToken, user } = await res.json();
+          const displayName = user.displayName || address.slice(0, 8);
           setUser({
             userId: user.id,
             walletAddress: user.walletAddress,
-            displayName: user.displayName || address.slice(0, 8),
+            displayName,
             token: newToken,
           });
+          // Force write to localStorage immediately
+          localStorage.setItem('xeron-user', JSON.stringify({
+            state: {
+              token: newToken,
+              userId: user.id,
+              walletAddress: user.walletAddress,
+              displayName,
+              isAuthenticated: true,
+              preferredModel: 'anthropic/claude-opus-4.6',
+            },
+            version: 0,
+          }));
         }
       } catch (err) {
         console.error('Wallet auth failed:', err);

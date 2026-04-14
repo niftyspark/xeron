@@ -38,6 +38,19 @@ export function WalletConnectButtonInner({ className = '' }: { className?: strin
         displayName: user.displayName,
         token,
       });
+      // Force write to localStorage immediately before redirect
+      // zustand persist is async so it might not write before page reload
+      localStorage.setItem('xeron-user', JSON.stringify({
+        state: {
+          token,
+          userId: user.id,
+          walletAddress: user.walletAddress,
+          displayName: user.displayName,
+          isAuthenticated: true,
+          preferredModel: 'anthropic/claude-opus-4.6',
+        },
+        version: 0,
+      }));
       window.location.href = '/dashboard';
     } catch (err) {
       console.error('Google sign-in error:', err);

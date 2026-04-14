@@ -1,17 +1,27 @@
 /**
  * Get auth token from client-side storage.
- * Reads from zustand persisted store in localStorage.
- * Used by all hooks that need to make authenticated API calls.
+ * Checks multiple sources to ensure we always find the token if it exists.
  */
 export function getClientToken(): string | null {
   if (typeof window === 'undefined') return null;
+
+  // Source 1: zustand persisted store in localStorage
   try {
     const raw = localStorage.getItem('xeron-user');
     if (raw) {
       const parsed = JSON.parse(raw);
-      return parsed?.state?.token || null;
+      const t = parsed?.state?.token;
+      if (t && typeof t === 'string' && t.includes('.')) return t;
     }
   } catch {}
+
+  // Source 2: try to read from zustand store directly (if hydrated)
+  try {
+    const { useUser } = require('@/app/store/useUser');
+    const t = useUser.getState().token;
+    if (t && typeof t === 'string' && t.includes('.')) return t;
+  } catch {}
+
   return null;
 }
 

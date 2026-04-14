@@ -3,7 +3,8 @@
 import { usePathname } from 'next/navigation';
 import { WalletConnectButton } from '@/app/components/web3/ConnectButton';
 import { useUI } from '@/app/store/useUI';
-import { Menu, Search, Command } from 'lucide-react';
+import { useUser } from '@/app/store/useUser';
+import { Menu, Search, Command, LogOut } from 'lucide-react';
 import { Button } from '@/app/components/ui/button';
 import { ThemeToggle } from './ThemeToggle';
 import { UserProfile } from './UserProfile';
@@ -61,6 +62,21 @@ export function Header() {
 
         {/* Wallet */}
         <WalletConnectButton />
+
+        {/* Logout */}
+        <button
+          onClick={() => {
+            useUser.getState().logout();
+            localStorage.removeItem('xeron-user');
+            localStorage.removeItem('xeron-chat');
+            localStorage.removeItem('xeron-code-sessions');
+            window.location.href = '/dashboard';
+          }}
+          className="p-2 rounded-lg hover:bg-red-500/10 text-white/30 hover:text-red-400 transition-colors"
+          title="Sign out"
+        >
+          <LogOut className="w-4 h-4" />
+        </button>
       </div>
     </header>
   );
