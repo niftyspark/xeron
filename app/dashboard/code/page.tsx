@@ -188,15 +188,20 @@ export default function CodeAgentPage() {
       const reader = res.body?.getReader();
       const decoder = new TextDecoder();
       let full = '';
-      let buffer = '';
-      let lastExtracted: Record<string, string> = {};
+      let sseBuffer = '';
+
+      // State machine for tracking code blocks
+      let insideBlock = false;
+      let currentBlockName = '';
+      let currentBlockCode = '';
+      let completedFiles: Record<string, string> = {};
 
       while (reader) {
         const { done, value } = await reader.read();
         if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
+        sseBuffer += decoder.decode(value, { stream: true });
+        const lines = sseBuffer.split('\n');
+        sseBuffer = lines.pop() || '';
 
         for (const line of lines) {
           if (!line.startsWith('data: ')) continue;
@@ -205,79 +210,139 @@ export default function CodeAgentPage() {
           try {
             const parsed = JSON.parse(data);
             const chunk = parsed.choices?.[0]?.delta?.content;
-            if (chunk) {
-              full += chunk;
+            if (!chunk) continue;
 
-              if (mode === 'agent') {
-                // AGENT MODE: never show raw text in chat.
-                // Parse completed code blocks -> write to IDE.
-                // Chat only shows file indicators, never code.
-                const extracted = parseCodeBlocks(full);
-                if (extracted) {
-                  const newFileNames = Object.keys(extracted);
-                  setActiveWritingFiles(newFileNames);
-                  setFiles(prev => ({ ...prev, ...extracted }));
-                  if (newFileNames.length > 0) {
-                    setActiveFile(newFileNames[newFileNames.length - 1]);
+            full += chunk;
+
+            if (mode !== 'agent') {
+              // Plan mode: show full text in chat
+              setMessages(prev => prev.map(m => m.id === assistantMsg.id ? { ...m, content: full } : m));
+              continue;
+            }
+
+            // AGENT MODE: state machine parser - NEVER show code in chat
+            // Process the full text character by character to find code blocks
+            // We re-parse from scratch each time (simple and correct)
+            insideBlock = false;
+            currentBlockName = '';
+            currentBlockCode = '';
+            completedFiles = {};
+            let textOutsideBlocks = '';
+            let currentlyWriting = '';
+
+            let i = 0;
+            while (i < full.length) {
+              if (!insideBlock) {
+                // Look for opening ```
+                if (full[i] === '`' && full.substring(i, i + 3) === '```') {
+                  // Find the end of the info line
+                  const nlIdx = full.indexOf('\n', i + 3);
+                  if (nlIdx === -1) {
+                    // Haven't received the full opening line yet
+                    currentlyWriting = '...';
+                    break;
                   }
-                  setRightTab('code');
-                  lastExtracted = extracted;
-                  // Chat: show ONLY file names, no text
-                  setMessages(prev => prev.map(m => m.id === assistantMsg.id
-                    ? { ...m, content: '', files: extracted }
-                    : m
-                  ));
+                  const infoStr = full.substring(i + 3, nlIdx).trim();
+                  if (infoStr) {
+                    insideBlock = true;
+                    currentBlockName = infoStr;
+                    currentBlockCode = '';
+                    i = nlIdx + 1;
+                    // Resolve name
+                    if (!currentBlockName.includes('.')) {
+                      currentBlockName = LANG_TO_FILE[currentBlockName.toLowerCase()] || currentBlockName + '.txt';
+                    }
+                    currentlyWriting = currentBlockName;
+                  } else {
+                    i++;
+                  }
                 } else {
-                  // Detect which file is currently being written (partial block)
-                  const partialMatch = full.match(/```(\S+)\n[^`]*$/);
-                  if (partialMatch) {
-                    const partialName = partialMatch[1];
-                    const displayName = partialName.includes('.') ? partialName : (LANG_TO_FILE[partialName.toLowerCase()] || partialName);
-                    setActiveWritingFiles([displayName]);
-                    setRightTab('code');
-                    // Chat: show nothing, just the writing indicator
-                    setMessages(prev => prev.map(m => m.id === assistantMsg.id
-                      ? { ...m, content: '' }
-                      : m
-                    ));
-                  }
-                  // else: AI is writing explanation text before code, show nothing yet
+                  textOutsideBlocks += full[i];
+                  i++;
                 }
               } else {
-                // Plan mode: show full text in chat
-                setMessages(prev => prev.map(m => m.id === assistantMsg.id
-                  ? { ...m, content: full }
-                  : m
-                ));
+                // Inside a code block - look for closing ```
+                if (full[i] === '`' && full.substring(i, i + 3) === '```') {
+                  // Block completed
+                  completedFiles[currentBlockName] = currentBlockCode.trimEnd();
+                  insideBlock = false;
+                  currentBlockName = '';
+                  currentBlockCode = '';
+                  currentlyWriting = '';
+                  i += 3;
+                  // Skip optional newline after closing ```
+                  if (i < full.length && full[i] === '\n') i++;
+                } else {
+                  currentBlockCode += full[i];
+                  i++;
+                }
               }
             }
+
+            // Update IDE with completed files
+            const fileNames = Object.keys(completedFiles);
+            if (fileNames.length > 0) {
+              setFiles(prev => ({ ...prev, ...completedFiles }));
+              setActiveFile(fileNames[fileNames.length - 1]);
+              setRightTab('code');
+            }
+
+            // Update writing indicator
+            const allWriting = [...fileNames];
+            if (currentlyWriting) allWriting.push(currentlyWriting);
+            if (allWriting.length > 0) {
+              setActiveWritingFiles(allWriting);
+              setRightTab('code');
+            }
+
+            // Chat: ONLY show file indicators, ZERO code
+            setMessages(prev => prev.map(m => m.id === assistantMsg.id
+              ? { ...m, content: '', files: fileNames.length > 0 ? completedFiles : undefined }
+              : m
+            ));
           } catch {}
         }
       }
 
-      // Finalize
-      const finalExtracted = parseCodeBlocks(full);
-      // Strip ALL code blocks to get only explanation text
-      const explanation = full.replace(/```[\s\S]*?```/g, '').trim();
+      // ── Finalize ──────────────────────────────────────────────────
+      const finalFiles = parseCodeBlocks(full);
+      // Get text outside of code blocks
+      let finalExplanation = '';
+      {
+        let inBlock = false;
+        let idx = 0;
+        while (idx < full.length) {
+          if (!inBlock && full[idx] === '`' && full.substring(idx, idx + 3) === '```') {
+            const nl = full.indexOf('\n', idx + 3);
+            if (nl === -1) break;
+            inBlock = true;
+            idx = nl + 1;
+          } else if (inBlock && full[idx] === '`' && full.substring(idx, idx + 3) === '```') {
+            inBlock = false;
+            idx += 3;
+            if (idx < full.length && full[idx] === '\n') idx++;
+          } else if (!inBlock) {
+            finalExplanation += full[idx];
+            idx++;
+          } else {
+            idx++;
+          }
+        }
+        finalExplanation = finalExplanation.trim();
+      }
 
-      if (finalExtracted && mode === 'agent') {
-        setFiles(prev => ({ ...prev, ...finalExtracted }));
-        setActiveFile(Object.keys(finalExtracted)[0]);
-        const fileCount = Object.keys(finalExtracted).length;
+      if (finalFiles && mode === 'agent') {
+        setFiles(prev => ({ ...prev, ...finalFiles }));
+        setActiveFile(Object.keys(finalFiles)[0]);
+        const count = Object.keys(finalFiles).length;
         setMessages(prev => prev.map(m => m.id === assistantMsg.id
-          ? {
-              ...m,
-              content: explanation || `Created ${fileCount} file${fileCount > 1 ? 's' : ''}.`,
-              files: finalExtracted,
-              isStreaming: false,
-            }
+          ? { ...m, content: finalExplanation || `Created ${count} file${count > 1 ? 's' : ''}.`, files: finalFiles, isStreaming: false }
           : m
         ));
-        // Switch to preview after a short delay so user sees the result
         setTimeout(() => setRightTab('preview'), 500);
       } else {
         setMessages(prev => prev.map(m => m.id === assistantMsg.id
-          ? { ...m, content: mode === 'agent' ? (explanation || 'Done.') : (explanation || full), isStreaming: false }
+          ? { ...m, content: mode === 'agent' ? (finalExplanation || 'Done.') : full, isStreaming: false }
           : m
         ));
       }
