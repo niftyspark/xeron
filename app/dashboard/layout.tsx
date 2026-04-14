@@ -9,6 +9,7 @@ import { useEffect, useState } from 'react';
 import { WalletConnectButton } from '@/app/components/web3/ConnectButton';
 import { useWalletAuth } from '@/app/hooks/useWalletAuth';
 import { Sparkles } from 'lucide-react';
+import { TurnstileWidget } from '@/app/components/auth/TurnstileWidget';
 
 export default function DashboardLayout({
   children,
@@ -86,6 +87,9 @@ export default function DashboardLayout({
           </div>
 
           <WalletConnectButton />
+
+          {/* Cloudflare Turnstile — bot protection */}
+          <TurnstileWidget />
         </div>
       </div>
     );

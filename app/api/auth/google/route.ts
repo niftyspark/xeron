@@ -10,13 +10,37 @@ import { ensureTables } from '@/lib/ensure-tables';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
 
+async function verifyTurnstile(token: string): Promise<boolean> {
+  const secret = process.env.TURNSTILE_SECRET_KEY;
+  if (!secret) return true; // Skip if not configured
+  try {
+    const res = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ secret, response: token }),
+    });
+    const data = await res.json();
+    return data.success === true;
+  } catch {
+    return false;
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     await ensureTables();
 
-    const { credential } = await req.json();
+    const { credential, turnstileToken } = await req.json();
     if (!credential) {
       return NextResponse.json({ error: 'Google credential is required' }, { status: 400 });
+    }
+
+    // Verify Cloudflare Turnstile (if configured)
+    if (process.env.TURNSTILE_SECRET_KEY && turnstileToken) {
+      const turnstileValid = await verifyTurnstile(turnstileToken);
+      if (!turnstileValid) {
+        return NextResponse.json({ error: 'Turnstile verification failed' }, { status: 403 });
+      }
     }
 
     // Verify the Google ID token

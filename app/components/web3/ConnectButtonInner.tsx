@@ -16,10 +16,15 @@ export function WalletConnectButtonInner({ className = '' }: { className?: strin
     if (!credential) return;
 
     try {
+      // Include Turnstile token if available
+      const turnstileToken = typeof sessionStorage !== 'undefined'
+        ? sessionStorage.getItem('turnstile_token') || ''
+        : '';
+
       const res = await fetch('/api/auth/google', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ credential }),
+        body: JSON.stringify({ credential, turnstileToken }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
