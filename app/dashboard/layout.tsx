@@ -5,7 +5,10 @@ import { Header } from '@/app/components/dashboard/Header';
 import { CommandPalette } from '@/app/components/dashboard/CommandPalette';
 import { useUI } from '@/app/store/useUI';
 import { useUser } from '@/app/store/useUser';
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState } from 'react';
+import { WalletConnectButton } from '@/app/components/web3/ConnectButton';
+import { useWalletAuth } from '@/app/hooks/useWalletAuth';
+import { Sparkles } from 'lucide-react';
 
 export default function DashboardLayout({
   children,
@@ -13,90 +16,37 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const { sidebarOpen } = useUI();
-  const { token, setUser } = useUser();
+  const { token, isAuthenticated } = useUser();
   const [ready, setReady] = useState(false);
-  const [error, setError] = useState('');
-  const didAuth = useRef(false);
+  const [hasAuth, setHasAuth] = useState(false);
+
+  // Auto-authenticate when wallet connects via RainbowKit
+  useWalletAuth();
 
   useEffect(() => {
-    // Already have a REAL JWT token (not the old fake 'local-session')
-    if (token && token !== 'local-session' && token.includes('.')) {
-      setReady(true);
-      return;
+    // Check for valid JWT token
+    let foundToken = false;
+
+    if (token && token.includes('.')) {
+      foundToken = true;
     }
 
-    // Check localStorage for a real JWT
-    try {
-      const raw = localStorage.getItem('xeron-user');
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        const t = parsed?.state?.token;
-        if (t && t !== 'local-session' && t.includes('.')) {
-          setReady(true);
-          return;
-        }
-        // Clear invalid token
-        if (t === 'local-session' || (t && !t.includes('.'))) {
-          parsed.state.token = null;
-          parsed.state.isAuthenticated = false;
-          localStorage.setItem('xeron-user', JSON.stringify(parsed));
-        }
-      }
-    } catch {}
-
-    // No valid token — create guest account
-    if (didAuth.current) return;
-    didAuth.current = true;
-
-    const createGuest = async () => {
+    if (!foundToken) {
       try {
-        // Ensure DB tables exist first
-        await fetch('/api/setup').catch(() => {});
-
-        const res = await fetch('/api/auth/guest', { method: 'POST' });
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          throw new Error(err.error || `Auth failed: ${res.status}`);
+        const raw = localStorage.getItem('xeron-user');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          const t = parsed?.state?.token;
+          if (t && t.includes('.')) foundToken = true;
         }
-        const { token: t, user } = await res.json();
-        if (!t || !t.includes('.')) {
-          throw new Error('Invalid token received');
-        }
-        setUser({
-          userId: user.id,
-          walletAddress: user.walletAddress,
-          displayName: user.displayName,
-          token: t,
-        });
-        setReady(true);
-      } catch (err: any) {
-        console.error('Guest auth failed:', err);
-        setError(err.message || 'Failed to create account');
-        // Retry once
-        setTimeout(async () => {
-          try {
-            const res = await fetch('/api/auth/guest', { method: 'POST' });
-            if (res.ok) {
-              const { token: t, user } = await res.json();
-              if (t && t.includes('.')) {
-                setUser({
-                  userId: user.id,
-                  walletAddress: user.walletAddress,
-                  displayName: user.displayName,
-                  token: t,
-                });
-                setError('');
-              }
-            }
-          } catch {}
-          setReady(true);
-        }, 2000);
-      }
-    };
+      } catch {}
+    }
 
-    createGuest();
-  }, [token, setUser]);
+    setHasAuth(foundToken);
+    setReady(true);
+  }, [token, isAuthenticated]);
 
+  // Keyboard shortcuts
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
@@ -111,10 +61,31 @@ export default function DashboardLayout({
   if (!ready) {
     return (
       <div className="flex h-screen items-center justify-center bg-[#0a0a0f]">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-          <p className="text-xs text-white/30">Setting up XERON...</p>
-          {error && <p className="text-xs text-red-400 max-w-xs text-center">{error}</p>}
+        <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  // Not authenticated — show sign-in screen
+  if (!hasAuth) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-[#0a0a0f] relative overflow-hidden">
+        <div className="absolute top-0 left-1/4 w-[600px] h-[600px] bg-blue-500/10 rounded-full blur-[150px]" />
+        <div className="absolute bottom-0 right-1/4 w-[600px] h-[600px] bg-purple-500/10 rounded-full blur-[150px]" />
+
+        <div className="relative z-10 flex flex-col items-center gap-6 px-4 text-center">
+          <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-blue-600 via-cyan-500 to-purple-600 flex items-center justify-center shadow-2xl shadow-blue-500/25">
+            <Sparkles className="w-10 h-10 text-white" />
+          </div>
+
+          <div>
+            <h1 className="text-3xl font-bold gradient-text mb-2">Sign in to XERON</h1>
+            <p className="text-white/40 text-sm max-w-xs">
+              Connect your wallet or sign in with Google to access your AI agent dashboard.
+            </p>
+          </div>
+
+          <WalletConnectButton />
         </div>
       </div>
     );

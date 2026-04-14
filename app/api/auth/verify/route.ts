@@ -5,9 +5,11 @@ import { db, schema } from '@/lib/db';
 import { eq } from 'drizzle-orm';
 import { signToken } from '@/lib/auth';
 import { verifyMessage } from 'viem';
+import { ensureTables } from '@/lib/ensure-tables';
 
 export async function POST(req: NextRequest) {
   try {
+    await ensureTables();
     const { address, signature, message } = await req.json();
 
     if (!address || !signature || !message) {
@@ -54,9 +56,12 @@ export async function POST(req: NextRequest) {
     });
 
     return NextResponse.json({
-      userId: user.id,
-      displayName: user.displayName,
       token,
+      user: {
+        id: user.id,
+        walletAddress: user.walletAddress,
+        displayName: user.displayName,
+      },
     });
   } catch (err: any) {
     console.error('Auth error:', err);

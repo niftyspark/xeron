@@ -1,53 +1,51 @@
 'use client';
 
-import { useCallback, useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useAccount, useSignMessage } from 'wagmi';
 import { useUser } from '@/app/store/useUser';
 
+/**
+ * Detects wallet connection via RainbowKit/wagmi and authenticates
+ * with the backend by signing a message and getting a JWT.
+ */
 export function useWalletAuth() {
   const { address, isConnected } = useAccount();
   const { signMessageAsync } = useSignMessage();
-  const { setUser, logout, isAuthenticated, token } = useUser();
-
-  const authenticate = useCallback(async () => {
-    if (!address) return;
-
-    try {
-      const nonce = `Sign in to XERON\nWallet: ${address}\nTimestamp: ${Date.now()}`;
-      const signature = await signMessageAsync({ message: nonce });
-
-      const response = await fetch('/api/auth/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ address, signature, message: nonce }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setUser({
-          userId: data.userId,
-          walletAddress: address,
-          displayName: data.displayName,
-          token: data.token,
-        });
-      }
-    } catch (err) {
-      console.error('Auth failed:', err);
-    }
-  }, [address, signMessageAsync, setUser]);
+  const { token, setUser } = useUser();
+  const authingRef = useRef(false);
 
   useEffect(() => {
-    if (!isConnected) {
-      logout();
-    }
-  }, [isConnected, logout]);
+    if (!isConnected || !address) return;
+    // Already have a valid token
+    if (token && token.includes('.')) return;
+    if (authingRef.current) return;
+    authingRef.current = true;
 
-  return {
-    address,
-    isConnected,
-    isAuthenticated,
-    token,
-    authenticate,
-    logout,
-  };
+    (async () => {
+      try {
+        const message = `Sign in to XERON\nWallet: ${address}\nTimestamp: ${Date.now()}`;
+        const signature = await signMessageAsync({ message });
+
+        const res = await fetch('/api/auth/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ address, message, signature }),
+        });
+
+        if (res.ok) {
+          const { token: newToken, user } = await res.json();
+          setUser({
+            userId: user.id,
+            walletAddress: user.walletAddress,
+            displayName: user.displayName || address.slice(0, 8),
+            token: newToken,
+          });
+        }
+      } catch (err) {
+        console.error('Wallet auth failed:', err);
+      } finally {
+        authingRef.current = false;
+      }
+    })();
+  }, [isConnected, address, token, setUser, signMessageAsync]);
 }
