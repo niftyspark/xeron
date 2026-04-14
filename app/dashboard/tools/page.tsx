@@ -6,8 +6,9 @@ import { Input } from '@/app/components/ui/input';
 import { Button } from '@/app/components/ui/button';
 import { Badge } from '@/app/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger } from '@/app/components/ui/tabs';
-import { useUser } from '@/app/store/useUser';
 import { PLANS } from '@/lib/integrations';
+import { getClientToken } from '@/lib/client-auth';
+import { toast } from 'sonner';
 import {
   Search, ExternalLink, Check, Zap, Star, Crown, Rocket,
   Loader2, Unplug, Link, RefreshCw, ChevronDown, Play,
@@ -40,7 +41,6 @@ interface ToolAction {
 }
 
 export default function ToolsPage() {
-  const { token } = useUser();
 
   const [search, setSearch] = useState('');
   const [view, setView] = useState<'integrations' | 'connected' | 'plans'>('integrations');
@@ -73,6 +73,7 @@ export default function ToolsPage() {
   }, []);
 
   const fetchConnections = useCallback(async () => {
+    const token = getClientToken();
     if (!token) return;
     try {
       const res = await fetch('/api/integrations/connections', {
@@ -84,7 +85,7 @@ export default function ToolsPage() {
     } catch (err) {
       console.error(err);
     }
-  }, [token]);
+  }, []);
 
   const fetchTools = useCallback(async (toolkitSlug: string) => {
     setLoadingTools(true);
@@ -108,7 +109,11 @@ export default function ToolsPage() {
   }, [fetchToolkits, fetchConnections]);
 
   const handleConnect = async (toolkitSlug: string) => {
-    if (!token) return;
+    const token = getClientToken();
+    if (!token) {
+      toast.error('Please sign in first');
+      return;
+    }
     setConnectingSlug(toolkitSlug);
     try {
       const res = await fetch('/api/integrations/connect', {
@@ -117,32 +122,39 @@ export default function ToolsPage() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          toolkit: toolkitSlug,
-          redirectUrl: window.location.href,
-        }),
+        body: JSON.stringify({ toolkit: toolkitSlug }),
       });
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || 'Failed to connect');
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Failed to connect (${res.status})`);
       }
       const data = await res.json();
-      const redirectUrl =
-        data.connectionRequest?.redirectUrl ||
-        data.connectionRequest?.connectionRequest?.redirectUrl ||
-        data.connectionRequest?.url;
+      // The connectionRequest object has { id, status, redirectUrl }
+      const cr = data.connectionRequest;
+      const redirectUrl = cr?.redirectUrl || cr?.redirect_url || cr?.url || null;
+      
       if (redirectUrl) {
+        toast.success('Opening OAuth window...');
         window.open(redirectUrl, '_blank', 'width=600,height=700');
+        // Poll for connection completion
+        setTimeout(() => fetchConnections(), 5000);
+        setTimeout(() => fetchConnections(), 10000);
+        setTimeout(() => fetchConnections(), 20000);
+      } else {
+        // Some connections don't need OAuth (API key based)
+        toast.success(`Connected to ${toolkitSlug}`);
+        fetchConnections();
       }
-      setTimeout(() => fetchConnections(), 3000);
     } catch (err: any) {
-      alert(err.message || 'Connection failed');
+      console.error('Connect error:', err);
+      toast.error(err.message || 'Connection failed');
     } finally {
       setConnectingSlug(null);
     }
   };
 
   const handleDisconnect = async (connectedAccountId: string) => {
+    const token = getClientToken();
     if (!token) return;
     setDisconnectingId(connectedAccountId);
     try {
@@ -154,15 +166,18 @@ export default function ToolsPage() {
         },
         body: JSON.stringify({ connectedAccountId }),
       });
+      toast.success('Disconnected');
       fetchConnections();
     } catch (err) {
       console.error(err);
+      toast.error('Failed to disconnect');
     } finally {
       setDisconnectingId(null);
     }
   };
 
   const handleExecuteTool = async (toolSlug: string) => {
+    const token = getClientToken();
     if (!token) return;
     setExecutingTool(toolSlug);
     setToolResult(null);
@@ -176,9 +191,16 @@ export default function ToolsPage() {
         body: JSON.stringify({ tool: toolSlug, params: {} }),
       });
       const data = await res.json();
-      setToolResult(JSON.stringify(data.result || data.error, null, 2));
+      if (res.ok) {
+        setToolResult(JSON.stringify(data.result, null, 2));
+        toast.success('Tool executed');
+      } else {
+        setToolResult(JSON.stringify(data.error, null, 2));
+        toast.error(data.error || 'Execution failed');
+      }
     } catch (err: any) {
       setToolResult(`Error: ${err.message}`);
+      toast.error(err.message);
     } finally {
       setExecutingTool(null);
     }
