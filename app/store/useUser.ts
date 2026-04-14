@@ -44,7 +44,6 @@ export const useUser = create<UserState>()(
     }),
     {
       name: 'xeron-user',
-      skipHydration: true,
       partialize: (state) => ({
         token: state.token,
         preferredModel: state.preferredModel,

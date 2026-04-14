@@ -30,9 +30,11 @@ export default function TasksPage() {
 
   const handleCreate = async () => {
     if (!form.name || !form.prompt) return;
-    await createTask(form);
-    setShowCreate(false);
-    setForm({ name: '', description: '', prompt: '', cronExpression: '0 9 * * *', model: 'anthropic/claude-opus-4.6', timezone: 'UTC', isActive: true });
+    const result = await createTask(form);
+    if (result) {
+      setShowCreate(false);
+      setForm({ name: '', description: '', prompt: '', cronExpression: '0 9 * * *', model: 'anthropic/claude-opus-4.6', timezone: 'UTC', isActive: true });
+    }
   };
 
   const cronPresets = [
