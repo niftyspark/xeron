@@ -10,16 +10,17 @@ export async function GET(req: NextRequest) {
     const token = getTokenFromHeaders(req.headers);
     if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     const payload = await verifyToken(token);
-    if (!payload) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+    if (!payload?.userId) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
 
     const tasks = await db.query.scheduledTasks.findMany({
-      where: eq(schema.scheduledTasks.userId, payload.userId),
+      where: eq(schema.scheduledTasks.userId, payload.userId as string),
       orderBy: [desc(schema.scheduledTasks.createdAt)],
     });
 
     return NextResponse.json(tasks);
-  } catch (err) {
-    return NextResponse.json({ error: 'Server error' }, { status: 500 });
+  } catch (err: any) {
+    console.error('GET tasks error:', err?.message || err);
+    return NextResponse.json({ error: err?.message || 'Server error' }, { status: 500 });
   }
 }
 
@@ -28,27 +29,32 @@ export async function POST(req: NextRequest) {
     const token = getTokenFromHeaders(req.headers);
     if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     const payload = await verifyToken(token);
-    if (!payload) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+    if (!payload?.userId) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
 
     const body = await req.json();
+
+    if (!body.name || !body.prompt) {
+      return NextResponse.json({ error: 'name and prompt are required' }, { status: 400 });
+    }
 
     const [task] = await db
       .insert(schema.scheduledTasks)
       .values({
-        userId: payload.userId,
+        userId: payload.userId as string,
         name: body.name,
         description: body.description || '',
         prompt: body.prompt,
         model: body.model || 'anthropic/claude-opus-4.6',
-        cronExpression: body.cronExpression,
+        cronExpression: body.cronExpression || '0 9 * * *',
         timezone: body.timezone || 'UTC',
         isActive: true,
       })
       .returning();
 
     return NextResponse.json(task);
-  } catch (err) {
-    return NextResponse.json({ error: 'Server error' }, { status: 500 });
+  } catch (err: any) {
+    console.error('POST tasks error:', err?.message || err);
+    return NextResponse.json({ error: err?.message || 'Failed to create task' }, { status: 500 });
   }
 }
 
@@ -57,11 +63,11 @@ export async function PATCH(req: NextRequest) {
     const token = getTokenFromHeaders(req.headers);
     if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     const payload = await verifyToken(token);
-    if (!payload) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+    if (!payload?.userId) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
 
     const { id, toggle } = await req.json();
 
-    if (toggle) {
+    if (toggle && id) {
       const task = await db.query.scheduledTasks.findFirst({
         where: eq(schema.scheduledTasks.id, id),
       });
@@ -74,8 +80,9 @@ export async function PATCH(req: NextRequest) {
     }
 
     return NextResponse.json({ success: true });
-  } catch (err) {
-    return NextResponse.json({ error: 'Server error' }, { status: 500 });
+  } catch (err: any) {
+    console.error('PATCH tasks error:', err?.message || err);
+    return NextResponse.json({ error: err?.message || 'Server error' }, { status: 500 });
   }
 }
 
@@ -84,7 +91,7 @@ export async function DELETE(req: NextRequest) {
     const token = getTokenFromHeaders(req.headers);
     if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     const payload = await verifyToken(token);
-    if (!payload) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+    if (!payload?.userId) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
 
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');
@@ -93,7 +100,8 @@ export async function DELETE(req: NextRequest) {
     await db.delete(schema.scheduledTasks).where(eq(schema.scheduledTasks.id, id));
 
     return NextResponse.json({ success: true });
-  } catch (err) {
-    return NextResponse.json({ error: 'Server error' }, { status: 500 });
+  } catch (err: any) {
+    console.error('DELETE tasks error:', err?.message || err);
+    return NextResponse.json({ error: err?.message || 'Server error' }, { status: 500 });
   }
 }

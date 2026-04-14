@@ -1,67 +1,46 @@
+export const dynamic = 'force-dynamic';
+
 import { NextRequest, NextResponse } from 'next/server';
 import { getConnectedAccounts, deleteConnectedAccount } from '@/lib/composio';
-import { verifyToken } from '@/lib/auth';
+import { verifyToken, getTokenFromHeaders } from '@/lib/auth';
 
-/**
- * GET /api/integrations/connections
- * List all connected accounts for the authenticated user
- */
 export async function GET(req: NextRequest) {
   try {
-    const authHeader = req.headers.get('authorization');
-    if (!authHeader) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const token = getTokenFromHeaders(req.headers);
+    if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const token = authHeader.replace('Bearer ', '');
     const payload = await verifyToken(token);
-    if (!payload || !payload.userId) {
-      return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
-    }
+    if (!payload?.userId) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
 
-    const userId = payload.userId as string;
-    const accounts = await getConnectedAccounts(userId);
-
-    return NextResponse.json({ connections: accounts });
+    const result = await getConnectedAccounts(payload.userId as string);
+    const connections = Array.isArray(result) ? result : (result?.items || result);
+    return NextResponse.json({ connections });
   } catch (error: any) {
-    console.error('List connections error:', error);
+    console.error('Connections error:', error?.message || error);
     return NextResponse.json(
-      { error: error.message || 'Failed to list connections' },
+      { error: error?.message || 'Failed to list connections' },
       { status: 500 }
     );
   }
 }
 
-/**
- * DELETE /api/integrations/connections
- * Disconnect a connected account
- * Body: { connectedAccountId: "..." }
- */
 export async function DELETE(req: NextRequest) {
   try {
-    const authHeader = req.headers.get('authorization');
-    if (!authHeader) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const token = getTokenFromHeaders(req.headers);
+    if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const token = authHeader.replace('Bearer ', '');
     const payload = await verifyToken(token);
-    if (!payload || !payload.userId) {
-      return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
-    }
+    if (!payload?.userId) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
 
     const { connectedAccountId } = await req.json();
-    if (!connectedAccountId) {
-      return NextResponse.json({ error: 'connectedAccountId required' }, { status: 400 });
-    }
+    if (!connectedAccountId) return NextResponse.json({ error: 'connectedAccountId required' }, { status: 400 });
 
     await deleteConnectedAccount(connectedAccountId);
-
     return NextResponse.json({ message: 'Disconnected' });
   } catch (error: any) {
-    console.error('Disconnect error:', error);
+    console.error('Disconnect error:', error?.message || error);
     return NextResponse.json(
-      { error: error.message || 'Failed to disconnect' },
+      { error: error?.message || 'Failed to disconnect' },
       { status: 500 }
     );
   }

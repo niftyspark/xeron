@@ -1,6 +1,7 @@
 'use client';
 
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 
 export interface ChatMessage {
   id: string;
@@ -69,7 +70,9 @@ interface ChatState {
   deleteConversationFromDB: (id: string) => Promise<void>;
 }
 
-export const useChat = create<ChatState>((set, get) => ({
+export const useChat = create<ChatState>()(
+  persist(
+  (set, get) => ({
   conversations: [],
   activeConversationId: null,
   isStreaming: false,
@@ -268,4 +271,13 @@ export const useChat = create<ChatState>((set, get) => ({
       console.error('Error deleting conversation:', err);
     }
   },
-}));
+}),
+  {
+    name: 'xeron-chat',
+    partialize: (state) => ({
+      conversations: state.conversations,
+      activeConversationId: state.activeConversationId,
+      currentModel: state.currentModel,
+    }),
+  }
+));

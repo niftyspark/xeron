@@ -1,27 +1,19 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { listTools, searchTools } from '@/lib/composio';
+export const dynamic = 'force-dynamic';
 
-/**
- * GET /api/integrations/tools
- * List tools for a toolkit, or search tools
- * Query params: ?toolkit=github or ?search=create issue
- */
+import { NextRequest, NextResponse } from 'next/server';
+import { listTools } from '@/lib/composio';
+
 export async function GET(req: NextRequest) {
   try {
     const toolkit = req.nextUrl.searchParams.get('toolkit') || undefined;
-    const search = req.nextUrl.searchParams.get('search');
 
-    if (search) {
-      const results = await searchTools(search);
-      return NextResponse.json({ tools: results });
-    }
-
-    const tools = await listTools(toolkit);
+    const result = await listTools(toolkit);
+    const tools = Array.isArray(result) ? result : (result?.items || result);
     return NextResponse.json({ tools });
   } catch (error: any) {
-    console.error('List tools error:', error);
+    console.error('Tools error:', error?.message || error);
     return NextResponse.json(
-      { error: error.message || 'Failed to list tools' },
+      { error: error?.message || 'Failed to list tools' },
       { status: 500 }
     );
   }

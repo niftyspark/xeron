@@ -1,41 +1,27 @@
+export const dynamic = 'force-dynamic';
+
 import { NextRequest, NextResponse } from 'next/server';
 import { initiateConnection } from '@/lib/composio';
-import { verifyToken } from '@/lib/auth';
+import { verifyToken, getTokenFromHeaders } from '@/lib/auth';
 
-/**
- * POST /api/integrations/connect
- * Initiate OAuth connection for a user to a toolkit
- * Body: { toolkit: "github" }
- */
 export async function POST(req: NextRequest) {
   try {
-    const authHeader = req.headers.get('authorization');
-    if (!authHeader) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const token = getTokenFromHeaders(req.headers);
+    if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const token = authHeader.replace('Bearer ', '');
     const payload = await verifyToken(token);
-    if (!payload || !payload.userId) {
-      return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
-    }
+    if (!payload?.userId) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
 
-    const { toolkit, redirectUrl } = await req.json();
-    if (!toolkit) {
-      return NextResponse.json({ error: 'toolkit is required' }, { status: 400 });
-    }
+    const { toolkit } = await req.json();
+    if (!toolkit) return NextResponse.json({ error: 'toolkit is required' }, { status: 400 });
 
-    const userId = payload.userId as string;
-    const connectionRequest = await initiateConnection(userId, toolkit, redirectUrl);
+    const connectionRequest = await initiateConnection(payload.userId as string, toolkit);
 
-    return NextResponse.json({
-      connectionRequest,
-      message: `Connection initiated for ${toolkit}`,
-    });
+    return NextResponse.json({ connectionRequest });
   } catch (error: any) {
-    console.error('Connect error:', error);
+    console.error('Connect error:', error?.message || error);
     return NextResponse.json(
-      { error: error.message || 'Failed to initiate connection' },
+      { error: error?.message || 'Failed to initiate connection' },
       { status: 500 }
     );
   }
