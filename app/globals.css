@@ -2,8 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-@import '@rainbow-me/rainbowkit/styles.css';
-
 /* ═══════════════════════════════════════════════════════════════════════════
    DEFAULT / DARK THEME (data-theme="dark" or no data-theme)
    ═══════════════════════════════════════════════════════════════════════════ */

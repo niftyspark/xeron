@@ -1,7 +1,6 @@
 'use client';
 
 import { usePathname } from 'next/navigation';
-import { WalletConnectButton } from '@/app/components/web3/ConnectButton';
 import { useUI } from '@/app/store/useUI';
 import { useUser } from '@/app/store/useUser';
 import { Menu, Search, Command, LogOut } from 'lucide-react';
@@ -59,9 +58,6 @@ export function Header() {
 
         {/* User Profile */}
         <UserProfile />
-
-        {/* Wallet */}
-        <WalletConnectButton />
 
         {/* Logout */}
         <button

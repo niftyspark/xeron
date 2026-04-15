@@ -4,9 +4,8 @@ import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Button } from '@/app/components/ui/button';
 import { Input } from '@/app/components/ui/input';
-import { WalletConnectButton } from '@/app/components/web3/ConnectButton';
 import { useUser } from '@/app/store/useUser';
-import { Sparkles, Mail, Chrome, ArrowRight, UserPlus } from 'lucide-react';
+import { Sparkles, Mail, ArrowRight, UserPlus } from 'lucide-react';
 
 export function AuthScreen() {
   const [mode, setMode] = useState<'landing' | 'login' | 'signup'>('landing');
@@ -137,10 +136,6 @@ export function AuthScreen() {
                 Email
               </Button>
             </div>
-
-            <div className="flex items-center justify-center gap-2 pt-4">
-              <WalletConnectButton />
-            </div>
           </div>
 
           <div className="mt-16 grid grid-cols-2 md:grid-cols-4 gap-4 max-w-2xl mx-auto">
@@ -244,10 +239,6 @@ export function AuthScreen() {
               <UserPlus className="w-5 h-5 mr-2" />
               Continue as Guest
             </Button>
-
-            <div className="flex items-center justify-center gap-2 pt-4">
-              <WalletConnectButton />
-            </div>
           </div>
         </div>
       </motion.div>
