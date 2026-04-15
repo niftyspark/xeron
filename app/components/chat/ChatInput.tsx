@@ -145,17 +145,28 @@ export function ChatInput({ onSend, onImageGenerate, isStreaming, onStop }: Chat
             {/* Image Generation Button */}
             {onImageGenerate && (
               <button
-                className="p-2 rounded-lg hover:bg-white/10 text-white/30 hover:text-pink-400 transition-colors"
-                title="Generate Image"
+                className={cn(
+                  'p-2 rounded-lg transition-all relative group',
+                  input.trim() && !isStreaming
+                    ? 'bg-pink-600/20 text-pink-400 hover:bg-pink-600/30 ring-1 ring-pink-500/30'
+                    : 'bg-pink-600/10 text-pink-400/50 hover:bg-pink-600/15'
+                )}
+                title="Generate Image (type a description first)"
                 onClick={() => {
                   if (input.trim()) {
                     onImageGenerate(input.trim());
                     setInput('');
                   }
                 }}
-                disabled={!input.trim() || isStreaming}
+                disabled={isStreaming}
               >
                 <ImageIcon className="w-4 h-4" />
+                {/* Pulse dot to indicate feature is active */}
+                <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-pink-500 rounded-full animate-pulse" />
+                {/* Tooltip */}
+                <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 text-[10px] text-white bg-black/90 rounded-md whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                  {input.trim() ? 'Generate image' : 'Type a description first'}
+                </span>
               </button>
             )}
           </div>
