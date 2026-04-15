@@ -9,6 +9,7 @@ export interface ChatMessage {
   content: string;
   createdAt: Date;
   isStreaming?: boolean;
+  metadata?: { images?: string[]; [key: string]: any };
 }
 
 export interface Conversation {

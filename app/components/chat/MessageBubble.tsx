@@ -83,7 +83,15 @@ export function MessageBubble({ message }: MessageBubbleProps) {
           isUser ? 'message-user ml-auto' : 'message-assistant'
         )}>
           {isUser ? (
-            <p className="text-sm text-white/90 whitespace-pre-wrap">{message.content}</p>
+            <div>
+              <p className="text-sm text-white/90 whitespace-pre-wrap">{message.content}</p>
+              {/* Render attached images */}
+              {(message as any).metadata?.images?.map((img: string, i: number) => (
+                <div key={i} className="mt-2 rounded-xl overflow-hidden border border-white/10 inline-block">
+                  <img src={img} alt="Attached" className="max-w-xs max-h-48 object-cover rounded-xl" />
+                </div>
+              ))}
+            </div>
           ) : (
             <div className="prose prose-invert prose-sm max-w-none">
               <ReactMarkdown
