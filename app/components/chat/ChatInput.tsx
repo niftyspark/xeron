@@ -26,6 +26,7 @@ interface ChatInputProps {
 export function ChatInput({ onSend, onImageGenerate, isStreaming, onStop }: ChatInputProps) {
   const [input, setInput] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [imageMode, setImageMode] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { skillsPanelOpen, setSkillsPanelOpen, integrationsPanelOpen, setIntegrationsPanelOpen } = useUI();
@@ -41,6 +42,13 @@ export function ChatInput({ onSend, onImageGenerate, isStreaming, onStop }: Chat
 
   const handleSend = () => {
     if ((!input.trim() && attachments.length === 0) || isStreaming) return;
+    if (imageMode && input.trim() && onImageGenerate) {
+      onImageGenerate(input.trim());
+      setInput('');
+      setImageMode(false);
+      if (textareaRef.current) textareaRef.current.style.height = 'auto';
+      return;
+    }
     onSend(input.trim(), attachments.length > 0 ? attachments : undefined);
     setInput('');
     setAttachments([]);
@@ -201,29 +209,19 @@ export function ChatInput({ onSend, onImageGenerate, isStreaming, onStop }: Chat
               <Layers className="w-4 h-4" />
             </button>
 
-            {/* Image Generation Button */}
+            {/* Image Mode Toggle */}
             {onImageGenerate && (
               <button
                 className={cn(
-                  'p-2 rounded-lg transition-all relative group',
-                  input.trim() && !isStreaming
-                    ? 'bg-pink-600/20 text-pink-400 hover:bg-pink-600/30 ring-1 ring-pink-500/30'
-                    : 'bg-pink-600/10 text-pink-400/50 hover:bg-pink-600/15'
+                  'p-2 rounded-lg transition-colors',
+                  imageMode
+                    ? 'bg-pink-600/20 text-pink-400'
+                    : 'hover:bg-white/10 text-white/30 hover:text-white/60'
                 )}
-                title="Generate Image"
-                onClick={() => {
-                  if (input.trim()) {
-                    onImageGenerate(input.trim());
-                    setInput('');
-                  }
-                }}
-                disabled={isStreaming}
+                title={imageMode ? 'Image mode ON — click to turn off' : 'Turn on image generation mode'}
+                onClick={() => setImageMode(!imageMode)}
               >
                 <ImageIcon className="w-4 h-4" />
-                <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-pink-500 rounded-full animate-pulse" />
-                <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 text-[10px] text-white bg-black/90 rounded-md whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-                  {input.trim() ? 'Generate image' : 'Type a description first'}
-                </span>
               </button>
             )}
           </div>
@@ -233,7 +231,7 @@ export function ChatInput({ onSend, onImageGenerate, isStreaming, onStop }: Chat
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={attachments.some(a => a.type === 'image') ? 'Ask about the image...' : 'Ask XERON anything...'}
+            placeholder={imageMode ? 'Describe the image you want to generate...' : attachments.some(a => a.type === 'image') ? 'Ask about the image...' : 'Ask XERON anything...'}
             rows={1}
             className="flex-1 bg-transparent text-sm text-white placeholder:text-white/30 outline-none resize-none max-h-[200px] py-2"
           />
@@ -251,10 +249,12 @@ export function ChatInput({ onSend, onImageGenerate, isStreaming, onStop }: Chat
                 disabled={!input.trim() && attachments.length === 0}
                 className={cn(
                   'rounded-lg transition-all',
-                  (input.trim() || attachments.length > 0) ? 'bg-blue-600 hover:bg-blue-700' : 'bg-white/10'
+                  imageMode && input.trim()
+                    ? 'bg-pink-600 hover:bg-pink-700'
+                    : (input.trim() || attachments.length > 0) ? 'bg-blue-600 hover:bg-blue-700' : 'bg-white/10'
                 )}
               >
-                <Send className="w-3.5 h-3.5" />
+                {imageMode ? <ImageIcon className="w-3.5 h-3.5" /> : <Send className="w-3.5 h-3.5" />}
               </Button>
             )}
           </div>
@@ -262,7 +262,7 @@ export function ChatInput({ onSend, onImageGenerate, isStreaming, onStop }: Chat
 
         <div className="flex items-center justify-between mt-2 px-1">
           <span className="text-[10px] text-white/20">
-            Ctrl+Enter to send {attachments.some(a => a.type === 'image') && '· Image will be analyzed by AI'}
+            {imageMode ? '🎨 Image mode — type a description and send' : `Ctrl+Enter to send${attachments.some(a => a.type === 'image') ? ' · Image will be analyzed by AI' : ''}`}
           </span>
           <span className="text-[10px] text-white/20">
             Powered by 4EverLand AI
