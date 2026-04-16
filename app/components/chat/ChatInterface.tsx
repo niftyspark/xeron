@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useChat, ChatMessage, Conversation } from '@/app/store/useChat';
 import { useUser } from '@/app/store/useUser';
 import { useStreaming } from '@/app/hooks/useStreaming';
-import { useSkills } from '@/app/store/useSkills';
+
 import { useUI } from '@/app/store/useUI';
 import { MessageBubble } from './MessageBubble';
 import { ChatInput, type Attachment } from './ChatInput';
@@ -20,7 +20,6 @@ export function ChatInterface() {
     conversationsLoaded,
   } = useChat();
   const { token, isAuthenticated } = useUser();
-  const { enabledSkills } = useSkills();
   const { decrementMessages, checkDailyReset } = useUI();
   const { isStreaming, startStream, stopStream } = useStreaming();
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -157,7 +156,7 @@ export function ChatInterface() {
         role: m.role, content: m.content,
       })).filter(m => m.content) || [];
 
-      await startStream(convId, assistantMsg.id, allMessages, currentModel, enabledSkills);
+      await startStream(convId, assistantMsg.id, allMessages, currentModel);
 
       const updatedConv = useChat.getState().conversations.find(c => c.id === convId);
       const finalMsg = updatedConv?.messages.find(m => m.id === assistantMsg.id);

@@ -1,12 +1,10 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Send, Square, Zap, Paperclip, Layers, ImageIcon, X, Eye } from 'lucide-react';
+import { Send, Square, Paperclip, Layers, ImageIcon, X, Eye } from 'lucide-react';
 import { Button } from '@/app/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useUI } from '@/app/store/useUI';
-import { useSkills } from '@/app/store/useSkills';
-import { SkillsPanel } from './SkillsPanel';
 import { IntegrationsPanel } from './IntegrationsPanel';
 
 interface Attachment {
@@ -29,8 +27,7 @@ export function ChatInput({ onSend, onImageGenerate, isStreaming, onStop }: Chat
   const [imageMode, setImageMode] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { skillsPanelOpen, setSkillsPanelOpen, integrationsPanelOpen, setIntegrationsPanelOpen } = useUI();
-  const { enabledSkills } = useSkills();
+  const { integrationsPanelOpen, setIntegrationsPanelOpen } = useUI();
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -102,23 +99,12 @@ export function ChatInput({ onSend, onImageGenerate, isStreaming, onStop }: Chat
     setAttachments(prev => prev.filter((_, i) => i !== index));
   };
 
-  const toggleSkills = () => {
-    setSkillsPanelOpen(!skillsPanelOpen);
-    setIntegrationsPanelOpen(false);
-  };
-
   const toggleIntegrations = () => {
     setIntegrationsPanelOpen(!integrationsPanelOpen);
-    setSkillsPanelOpen(false);
   };
 
   return (
     <div className="relative border-t border-white/5 p-4 bg-[#0a0a0f]/80 backdrop-blur-xl">
-      {skillsPanelOpen && (
-        <div className="absolute bottom-full left-4 mb-2 z-50">
-          <SkillsPanel />
-        </div>
-      )}
       {integrationsPanelOpen && (
         <div className="absolute bottom-full left-4 mb-2 z-50">
           <IntegrationsPanel />
@@ -175,25 +161,6 @@ export function ChatInput({ onSend, onImageGenerate, isStreaming, onStop }: Chat
               onChange={handleFileUpload}
               accept=".txt,.md,.json,.js,.ts,.py,.html,.css,.svg,.png,.jpg,.jpeg,.gif,.webp,.bmp,.pdf"
             />
-
-            {/* Skills Button */}
-            <button
-              className={cn(
-                'p-2 rounded-lg transition-colors relative',
-                skillsPanelOpen
-                  ? 'bg-amber-600/20 text-amber-400'
-                  : 'hover:bg-white/10 text-white/30 hover:text-white/60'
-              )}
-              title="Skills"
-              onClick={toggleSkills}
-            >
-              <Zap className="w-4 h-4" />
-              {enabledSkills.length > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-amber-500 rounded-full text-[8px] flex items-center justify-center text-white">
-                  {enabledSkills.length}
-                </span>
-              )}
-            </button>
 
             {/* Integrations Button */}
             <button

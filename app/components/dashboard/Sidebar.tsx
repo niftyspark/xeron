@@ -15,7 +15,6 @@ import {
 const navItems = [
   { label: 'Chat', href: '/dashboard', icon: MessageSquare },
   { label: 'Code Agent', href: '/dashboard/code', icon: Code2 },
-  { label: 'Skills', href: '/dashboard/skills', icon: Zap },
   { label: 'Tools', href: '/dashboard/tools', icon: Wrench },
   { label: 'Tasks', href: '/dashboard/tasks', icon: Calendar },
   { label: 'Memory', href: '/dashboard/memory', icon: Brain },
