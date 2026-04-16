@@ -267,10 +267,10 @@ export function ChatInterface() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg">
               {[
-                'Write a smart contract for an ERC-20 token on Base',
-                'Analyze my wallet activity and suggest optimizations',
+                'Build a REST API with authentication and rate limiting',
+                'Analyze this dataset and create visualizations',
                 'Create a full-stack Next.js dashboard with authentication',
-                'Explain the latest trends in DeFi on Layer 2s',
+                'Explain the latest trends in AI and machine learning',
               ].map((suggestion) => (
                 <button
                   key={suggestion}

@@ -42,8 +42,8 @@ const features = [
   },
   {
     icon: Shield,
-    title: 'Decentralized Auth',
-    description: 'No passwords. Connect your wallet on Base chain or sign in with email. Your data, your keys.',
+    title: 'Secure Auth',
+    description: 'Sign in with Google. No passwords needed. Your data stays private.',
     color: 'from-indigo-500 to-blue-600',
   },
   {
@@ -71,7 +71,7 @@ const howItWorks = [
   {
     step: '01',
     title: 'Connect or Sign In',
-    description: 'Use your wallet, email, or continue as guest. No password needed.',
+    description: 'Sign in with Google. Quick and secure.',
   },
   {
     step: '02',
@@ -131,7 +131,7 @@ export function Hero() {
           >
             <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full glass mb-8">
               <Star className="w-4 h-4 text-amber-400" />
-              <span className="text-sm text-white/70">Your AI Agent for Web3 & Beyond</span>
+              <span className="text-sm text-white/70">Your Autonomous AI Agent</span>
             </div>
 
             <h1 className="text-5xl md:text-7xl lg:text-8xl font-bold mb-6 leading-tight">
@@ -142,7 +142,7 @@ export function Hero() {
 
             <p className="text-xl text-white/50 max-w-2xl mx-auto mb-10">
               XERON is your personal AI agent with persistent memory, 1000+ model connectors, 
-              20+ skills, and 100+ app integrations. Built on Base blockchain.
+              20+ skills, and 100+ app integrations.
             </p>
 
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">

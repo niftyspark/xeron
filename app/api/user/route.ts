@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyToken, getTokenFromHeaders } from '@/lib/auth';
 import { db, schema } from '@/lib/db';
 import { eq } from 'drizzle-orm';
+import { ensureTables } from '@/lib/ensure-tables';
 
 export async function GET(req: NextRequest) {
   try {
@@ -12,6 +13,7 @@ export async function GET(req: NextRequest) {
     const payload = await verifyToken(token);
     if (!payload) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
 
+    await ensureTables();
     const user = await db.query.users.findFirst({
       where: eq(schema.users.id, payload.userId),
     });
@@ -40,6 +42,7 @@ export async function PATCH(req: NextRequest) {
     const payload = await verifyToken(token);
     if (!payload) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
 
+    await ensureTables();
     const body = await req.json();
     const updates: any = {};
 
@@ -63,6 +66,7 @@ export async function DELETE(req: NextRequest) {
     const payload = await verifyToken(token);
     if (!payload) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
 
+    await ensureTables();
     // Delete user - cascades will handle related data (conversations, memories, etc.)
     await db.delete(schema.users).where(eq(schema.users.id, payload.userId));
 

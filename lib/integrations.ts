@@ -9,7 +9,7 @@ export const PLANS = [
       '20 built-in skills',
       'Memory storage (100 items)',
       'Basic model access',
-      'Web3 wallet auth',
+      'Google Sign-In',
     ],
     limits: {
       messagesPerDay: 50,

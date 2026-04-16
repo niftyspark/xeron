@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db, schema } from '@/lib/db';
 import { eq, lte, and } from 'drizzle-orm';
+import { ensureTables } from '@/lib/ensure-tables';
 
 const API_URL = 'https://ai.api.4everland.org/api/v1/chat/completions';
 
@@ -66,6 +67,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'AI API key not configured' }, { status: 500 });
     }
 
+    await ensureTables();
     const now = new Date();
 
     // Find all active tasks where nextRun <= now

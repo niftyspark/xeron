@@ -279,10 +279,9 @@ export default function SettingsPage() {
             </div>
 
             <div>
-              <label className="text-sm text-white/60 mb-1 block">Wallet Address</label>
+              <label className="text-sm text-white/60 mb-1 block">Email</label>
               <div className="flex items-center gap-2 p-3 rounded-lg bg-white/5 border border-white/10">
                 <span className="text-sm text-white/50 font-mono">{walletAddress || 'Not connected'}</span>
-                <Badge variant="default" className="text-[10px]">Base</Badge>
               </div>
             </div>
           </div>

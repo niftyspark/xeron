@@ -5,6 +5,7 @@ import { verifyToken, getTokenFromHeaders } from '@/lib/auth';
 import { db, schema } from '@/lib/db';
 import { eq, and, sql } from 'drizzle-orm';
 import { BUILTIN_SKILLS } from '@/lib/skills';
+import { ensureTables } from '@/lib/ensure-tables';
 
 export async function GET(req: NextRequest) {
   try {
@@ -13,6 +14,7 @@ export async function GET(req: NextRequest) {
     const payload = await verifyToken(token);
     if (!payload) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
 
+    await ensureTables();
     // Count active memories
     const memoriesResult = await db
       .select({ count: sql<number>`count(*)` })

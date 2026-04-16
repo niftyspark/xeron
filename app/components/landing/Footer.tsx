@@ -14,22 +14,16 @@ export function Footer() {
         </div>
         
         <p className="text-sm text-white/30">
-          Decentralized Autonomous AI Agent Platform
+          Autonomous AI Agent Platform
         </p>
 
-        <div className="flex items-center gap-6">
+          <div className="flex items-center gap-6">
           <a href="#" className="text-sm text-white/40 hover:text-white/70 transition-colors">
             Docs
           </a>
           <a href="#" className="text-sm text-white/40 hover:text-white/70 transition-colors">
             GitHub
           </a>
-          <div className="flex items-center gap-1 px-3 py-1 rounded-full bg-white/5 border border-white/10">
-            <div className="w-4 h-4 rounded-full bg-blue-500 flex items-center justify-center">
-              <span className="text-[8px] font-bold">B</span>
-            </div>
-            <span className="text-xs text-white/50">Base</span>
-          </div>
         </div>
       </div>
     </footer>

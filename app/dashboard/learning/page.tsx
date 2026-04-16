@@ -41,7 +41,8 @@ export default function LearningPage() {
   useEffect(() => {
     async function fetchLearningLogs() {
       try {
-        const token = localStorage.getItem('auth_token');
+        const { getClientToken } = await import('@/lib/client-auth');
+        const token = getClientToken();
         const res = await fetch('/api/learning', {
           headers: {
             Authorization: `Bearer ${token}`,

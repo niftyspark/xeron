@@ -30,7 +30,8 @@ export function MessageBubble({ message }: MessageBubbleProps) {
     if (feedbackGiven) return;
 
     try {
-      const token = localStorage.getItem('auth_token');
+      const { getClientToken } = await import('@/lib/client-auth');
+      const token = getClientToken();
       const res = await fetch('/api/learning', {
         method: 'POST',
         headers: {

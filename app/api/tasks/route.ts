@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/api-guard';
 import { db, schema } from '@/lib/db';
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, and } from 'drizzle-orm';
 import { ensureTables } from '@/lib/ensure-tables';
 
 export async function GET(req: NextRequest) {
@@ -60,7 +60,7 @@ export async function PATCH(req: NextRequest) {
     const { id, toggle } = await req.json();
     if (toggle && id) {
       const task = await db.query.scheduledTasks.findFirst({
-        where: eq(schema.scheduledTasks.id, id),
+        where: and(eq(schema.scheduledTasks.id, id), eq(schema.scheduledTasks.userId, auth.userId)),
       });
       if (task) {
         await db.update(schema.scheduledTasks)
@@ -83,7 +83,9 @@ export async function DELETE(req: NextRequest) {
     const id = new URL(req.url).searchParams.get('id');
     if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
 
-    await db.delete(schema.scheduledTasks).where(eq(schema.scheduledTasks.id, id));
+    await db.delete(schema.scheduledTasks).where(
+      and(eq(schema.scheduledTasks.id, id), eq(schema.scheduledTasks.userId, auth.userId))
+    );
     return NextResponse.json({ success: true });
   } catch (err: any) {
     console.error('DELETE tasks:', err?.message);

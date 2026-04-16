@@ -10,8 +10,8 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: 'XERON - Decentralized Autonomous AI Agent',
-  description: 'Your decentralized autonomous AI agent with persistent memory, skills, scheduling, and 1000+ model connectors on Base blockchain.',
+  title: 'XERON - Autonomous AI Agent',
+  description: 'Your autonomous AI agent with persistent memory, skills, scheduling, and 1000+ model connectors.',
   icons: { icon: '/favicon.ico' },
 };
 

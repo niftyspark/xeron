@@ -91,8 +91,8 @@ export function UserProfile() {
                   </div>
                   <div>
                     <p className="text-sm text-white font-medium">{displayName || 'Guest User'}</p>
-                    <p className="text-[11px] text-white/40 truncate max-w-[120px]">
-                      {walletAddress?.slice(0, 10)}...
+                    <p className="text-[11px] text-white/40 truncate max-w-[180px]">
+                      {walletAddress || 'No email'}
                     </p>
                   </div>
                 </div>
