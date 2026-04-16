@@ -10,7 +10,7 @@ const API_URL = 'https://ai.api.4everland.org/api/v1/chat/completions';
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { messages, model = 'anthropic/claude-opus-4.6', skills = [] } = body;
+    const { messages, model = 'google/gemma-4-26b-a4b-it:free', skills = [] } = body;
 
     const apiKey = process.env.FOUR_EVER_LAND_API_KEY;
     if (!apiKey) {
