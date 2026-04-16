@@ -230,12 +230,16 @@ export function ChatInterface() {
 
       const data = await res.json();
 
-      // Update the assistant message with the image
-      useChat.getState().updateMessage(
-        convId,
-        assistantMsg.id,
-        `![Generated Image](${data.image})\n\n*"${prompt}"* — Generated with ${data.model}`
-      );
+      // Store image in metadata, text in content
+      const conv = useChat.getState().conversations.find(c => c.id === convId);
+      if (conv) {
+        const updatedMessages = conv.messages.map(m =>
+          m.id === assistantMsg.id
+            ? { ...m, content: `*"${prompt}"*\nGenerated with ${data.model}`, isStreaming: false, metadata: { images: [data.image] } }
+            : m
+        );
+        useChat.getState().updateConversationMessages(convId, updatedMessages);
+      }
     } catch (err: any) {
       useChat.getState().updateMessage(convId, assistantMsg.id, `Failed to generate image: ${err.message}`);
       toast.error(err.message || 'Image generation failed');

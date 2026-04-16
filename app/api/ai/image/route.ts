@@ -66,10 +66,36 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Cloudflare returns raw image bytes
-    const imageBuffer = await cfRes.arrayBuffer();
-    const base64 = Buffer.from(imageBuffer).toString('base64');
-    const dataUrl = `data:image/png;base64,${base64}`;
+    const contentType = cfRes.headers.get('content-type') || '';
+    let dataUrl: string;
+
+    if (contentType.includes('application/json')) {
+      // Some CF models return JSON: { result: { image: "base64..." } } or { image: "base64..." }
+      const json = await cfRes.json();
+      const b64 = json?.result?.image || json?.image || json?.result?.images?.[0] || null;
+      if (!b64) {
+        console.error('CF AI returned JSON but no image field:', JSON.stringify(json).slice(0, 500));
+        return NextResponse.json({ error: 'No image in response' }, { status: 500 });
+      }
+      // b64 might already be a data URL or raw base64
+      dataUrl = b64.startsWith('data:') ? b64 : `data:image/png;base64,${b64}`;
+    } else if (contentType.includes('image/')) {
+      // Raw image bytes
+      const imageBuffer = await cfRes.arrayBuffer();
+      const base64 = Buffer.from(imageBuffer).toString('base64');
+      const mime = contentType.split(';')[0].trim();
+      dataUrl = `data:${mime};base64,${base64}`;
+    } else {
+      // Unknown content type — try raw bytes as PNG
+      const imageBuffer = await cfRes.arrayBuffer();
+      if (imageBuffer.byteLength < 100) {
+        const text = new TextDecoder().decode(imageBuffer);
+        console.error('CF AI returned unexpected response:', text);
+        return NextResponse.json({ error: 'Invalid image response' }, { status: 500 });
+      }
+      const base64 = Buffer.from(imageBuffer).toString('base64');
+      dataUrl = `data:image/png;base64,${base64}`;
+    }
 
     return NextResponse.json({
       image: dataUrl,

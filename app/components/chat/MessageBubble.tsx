@@ -180,6 +180,17 @@ export function MessageBubble({ message }: MessageBubbleProps) {
               >
                 {message.content}
               </ReactMarkdown>
+              {/* Render generated images from metadata */}
+              {(message as any).metadata?.images?.map((img: string, i: number) => (
+                <div key={i} className="mt-3 rounded-xl overflow-hidden border border-white/10 inline-block">
+                  <img
+                    src={img}
+                    alt="Generated image"
+                    className="max-w-md w-full rounded-xl"
+                    loading="lazy"
+                  />
+                </div>
+              ))}
             </div>
           )}
         </div>

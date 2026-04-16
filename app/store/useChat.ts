@@ -45,6 +45,7 @@ interface ChatState {
   setCurrentModel: (model: string) => void;
   deleteConversation: (id: string) => void;
   updateConversationTitle: (id: string, title: string) => void;
+  updateConversationMessages: (id: string, messages: ChatMessage[]) => void;
   getActiveConversation: () => Conversation | undefined;
 
   // DB-backed operations
@@ -126,6 +127,13 @@ export const useChat = create<ChatState>()(
     set((s) => ({
       conversations: s.conversations.map((c) =>
         c.id === id ? { ...c, title } : c
+      ),
+    })),
+
+  updateConversationMessages: (id, messages) =>
+    set((s) => ({
+      conversations: s.conversations.map((c) =>
+        c.id === id ? { ...c, messages } : c
       ),
     })),
 
