@@ -133,16 +133,46 @@ export default function ToolsPage() {
       const cr = data.connectionRequest;
       const redirectUrl = cr?.redirectUrl || cr?.redirect_url || cr?.url || null;
       
+      const connectionId = data.connectionRequest?.id;
+
       if (redirectUrl) {
         toast.success('Opening OAuth window...');
         window.open(redirectUrl, '_blank', 'width=600,height=700');
-        // Poll for connection completion
-        setTimeout(() => fetchConnections(), 5000);
-        setTimeout(() => fetchConnections(), 10000);
-        setTimeout(() => fetchConnections(), 20000);
+        
+        // Poll for connection completion using status endpoint
+        if (connectionId) {
+          const pollStatus = async () => {
+            try {
+              const statusRes = await fetch(`/api/integrations/status?id=${connectionId}`, {
+                headers: { Authorization: `Bearer ${token}` },
+              });
+              if (statusRes.ok) {
+                const statusData = await statusRes.json();
+                if (statusData.status === 'ACTIVE') {
+                  toast.success(`Connected to ${toolkitSlug}!`);
+                  fetchConnections();
+                  return true;
+                }
+              }
+            } catch {}
+            return false;
+          };
+
+          // Poll at increasing intervals
+          const intervals = [3000, 5000, 8000, 12000, 18000, 25000];
+          for (const delay of intervals) {
+            setTimeout(async () => {
+              await pollStatus();
+            }, delay);
+          }
+        } else {
+          // No connection ID, just poll connections list
+          setTimeout(() => fetchConnections(), 5000);
+          setTimeout(() => fetchConnections(), 15000);
+        }
       } else {
-        // Some connections don't need OAuth (API key based)
-        toast.success(`Connected to ${toolkitSlug}`);
+        // No redirect needed (API key based or already connected)
+        toast.success(`Connected to ${toolkitSlug}!`);
         fetchConnections();
       }
     } catch (err: any) {
@@ -206,7 +236,10 @@ export default function ToolsPage() {
     }
   };
 
-  const connectedSlugs = new Set(connections.map((c) => c.toolkitSlug));
+  // Handle different field names from Composio SDK
+  const connectedSlugs = new Set(
+    connections.map((c: any) => c.toolkitSlug || c.appName || c.appUniqueId || '').filter(Boolean)
+  );
   const filteredToolkits = toolkits.filter((tk) => {
     if (!search) return true;
     return (
@@ -330,7 +363,7 @@ export default function ToolsPage() {
                             variant="ghost"
                             className="px-2 text-red-400"
                             onClick={() => {
-                              const conn = connections.find((c) => c.toolkitSlug === tk.slug);
+                              const conn = connections.find((c: any) => (c.toolkitSlug || c.appName) === tk.slug);
                               if (conn) handleDisconnect(conn.id);
                             }}
                           >
@@ -450,7 +483,7 @@ export default function ToolsPage() {
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {connections.map((conn) => {
-                const toolkit = toolkits.find((tk) => tk.slug === conn.toolkitSlug);
+                const toolkit = toolkits.find((tk: any) => tk.slug === (conn as any).toolkitSlug || tk.slug === (conn as any).appName);
                 return (
                   <motion.div
                     key={conn.id}
@@ -464,7 +497,7 @@ export default function ToolsPage() {
                       </div>
                       <div>
                         <h3 className="text-sm font-medium text-white">
-                          {toolkit?.name || conn.toolkitSlug}
+                          {toolkit?.name || (conn as any).toolkitSlug || (conn as any).appName}
                         </h3>
                         <p className="text-[11px] text-white/40">
                           Connected {new Date(conn.createdAt).toLocaleDateString()}
