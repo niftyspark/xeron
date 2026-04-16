@@ -56,7 +56,7 @@ export function ChatInput({ onSend, onImageGenerate, isStreaming, onStop }: Chat
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+    if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
     }
@@ -262,7 +262,7 @@ export function ChatInput({ onSend, onImageGenerate, isStreaming, onStop }: Chat
 
         <div className="flex items-center justify-between mt-2 px-1">
           <span className="text-[10px] text-white/20">
-            {imageMode ? '🎨 Image mode — type a description and send' : `Ctrl+Enter to send${attachments.some(a => a.type === 'image') ? ' · Image will be analyzed by AI' : ''}`}
+            {imageMode ? '🎨 Image mode — type a description and press Enter' : `Enter to send · Shift+Enter for new line${attachments.some(a => a.type === 'image') ? ' · Image will be analyzed by AI' : ''}`}
           </span>
           <span className="text-[10px] text-white/20">
             Powered by 4EverLand AI
