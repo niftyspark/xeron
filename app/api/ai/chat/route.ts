@@ -25,7 +25,7 @@ export const POST = withErrors(async (req: NextRequest) => {
   const body = await req.json().catch(() => null);
   const parsed = ChatRequestSchema.safeParse(body);
   if (!parsed.success) throw badRequest('Invalid chat payload.');
-  const { messages, model = 'anthropic/claude-opus-4.6', skills = [], temperature = 0.7 } =
+  const { messages, model = 'anthropic/claude-opus-4.7', skills = [], temperature = 0.7 } =
     parsed.data;
 
   const apiKey = process.env.FOUR_EVER_LAND_API_KEY;
