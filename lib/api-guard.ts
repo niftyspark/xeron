@@ -10,9 +10,11 @@
  *   - assertConversationOwnership(...): raises 404 for foreign/missing conversations.
  *   - assertMemoryOwnership(...): same for memories.
  *   - assertTaskOwnership(...): same for scheduled_tasks.
- *   - assertComposioConnectionOwnership(...): scopes Composio connection IDs
- *     to the caller's userId (composio SDK uses our internal userId as its
- *     principal key, so this is a simple string comparison).
+ *   - findConnectionForUser(...): scopes Composio connection IDs to the
+ *     caller's userId by querying Composio's user-scoped list rather than
+ *     fetching the connection by id (which previously broke the OAuth
+ *     completion flow because Composio's response shape varies by SDK
+ *     version and the owner field was sometimes absent).
  *
  * All ownership mismatches produce `notFound()` (404) — never 403 — to avoid
  * leaking the existence of another user's resources via ID enumeration.
@@ -28,7 +30,7 @@ import {
   serviceUnavailable,
   unauthorized,
 } from './errors';
-import { getConnectedAccount } from './composio';
+import { getConnectedAccounts } from './composio';
 
 export interface AuthContext {
   userId: string;
@@ -155,24 +157,47 @@ export async function assertTaskOwnership(taskId: string, userId: string) {
 }
 
 /**
- * Composio does not expose per-connection owner metadata in a uniform shape,
- * but `composio.connectedAccounts.get(id)` returns the userId we passed when
- * initiating the connection. Since XERON always uses our internal users.id as
- * the Composio `userId`, a string comparison is sufficient and authoritative.
+ * IDOR-safe Composio connection lookup.
+ *
+ * Earlier this file shipped `assertComposioConnectionOwnership` which fetched
+ * a connection by id and then tried to read `userId` / `user_id` off the
+ * response. That broke in production because Composio's response shape
+ * differs across SDK versions (sometimes the owner key is `entity_id`,
+ * sometimes nested under `metadata`, sometimes absent on certain auth
+ * schemes). When the field wasn't where we expected, ownership was treated
+ * as a mismatch and every status poll returned 404 — so the OAuth flow
+ * never completed for users in the UI.
+ *
+ * The fix is to pivot the question. Instead of "fetch by id and check
+ * owner", we ask Composio for "connections belonging to userId" and then
+ * find the one with the requested id. Composio scopes the list query
+ * server-side, so this is naturally IDOR-safe regardless of response shape:
+ * a connection that doesn't belong to userId can't appear in the list.
+ *
+ * Throws notFound() (never 403) to avoid leaking existence of foreign rows.
  */
-export async function assertComposioConnectionOwnership(
+export async function findConnectionForUser(
   connectedAccountId: string,
   userId: string,
-) {
-  const account = await getConnectedAccount(connectedAccountId);
-  // Composio returns userId under different keys depending on SDK version.
-  const ownerId =
-    (account as { userId?: string; user_id?: string }).userId ??
-    (account as { user_id?: string }).user_id ??
-    null;
+): Promise<Record<string, unknown>> {
+  const list = await getConnectedAccounts(userId);
 
-  if (!ownerId || ownerId !== userId) throw notFound();
-  return account;
+  // Composio's list response is one of:
+  //   - Array<Account>
+  //   - { items: Array<Account> }
+  //   - { data: Array<Account> }
+  // Normalise to a flat array.
+  const items: Array<Record<string, unknown>> = Array.isArray(list)
+    ? (list as Array<Record<string, unknown>>)
+    : Array.isArray((list as { items?: unknown[] }).items)
+      ? ((list as { items: Array<Record<string, unknown>> }).items)
+      : Array.isArray((list as { data?: unknown[] }).data)
+        ? ((list as { data: Array<Record<string, unknown>> }).data)
+        : [];
+
+  const match = items.find((acct) => acct.id === connectedAccountId);
+  if (!match) throw notFound();
+  return match;
 }
 
 // Minimal UUID v4-ish check — rejects obvious garbage before hitting the DB.

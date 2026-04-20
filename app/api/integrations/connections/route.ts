@@ -2,11 +2,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getConnectedAccounts, deleteConnectedAccount } from '@/lib/composio';
-import {
-  requireAuth,
-  assertComposioConnectionOwnership,
-  withErrors,
-} from '@/lib/api-guard';
+import { requireAuth, findConnectionForUser, withErrors } from '@/lib/api-guard';
 import { badRequest } from '@/lib/errors';
 import { ComposioDisconnectSchema } from '@/lib/validators';
 
@@ -30,9 +26,10 @@ export const DELETE = withErrors(async (req: NextRequest) => {
   const parsed = ComposioDisconnectSchema.safeParse(body);
   if (!parsed.success) throw badRequest('connectedAccountId is required.');
 
-  // Authoritative check that this Composio connection belongs to the caller.
-  // Throws 404 (never 403) to avoid leaking existence.
-  await assertComposioConnectionOwnership(parsed.data.connectedAccountId, auth.userId);
+  // Authoritative check via the user-scoped list (IDOR-safe regardless of
+  // Composio response-shape variations). Throws 404 if the connection
+  // doesn't exist or belongs to someone else.
+  await findConnectionForUser(parsed.data.connectedAccountId, auth.userId);
 
   await deleteConnectedAccount(parsed.data.connectedAccountId);
   return NextResponse.json({ message: 'Disconnected' });

@@ -92,8 +92,10 @@ export async function getConnectedAccounts(userId: string): Promise<unknown> {
 }
 
 /**
- * Used by api-guard.assertComposioConnectionOwnership() to enforce that a
- * connectedAccountId belongs to the caller BEFORE any destructive action.
+ * Direct fetch by connectedAccountId. Kept for callers that need the raw
+ * Composio response (e.g. debugging tooling). Production routes prefer
+ * api-guard.findConnectionForUser, which scopes the lookup to the caller's
+ * userId via the user-scoped list endpoint and is therefore IDOR-safe.
  */
 export async function getConnectedAccount(
   connectedAccountId: string,

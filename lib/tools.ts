@@ -12,7 +12,7 @@
  * Everything else is generic.
  */
 
-const TAVILY_URL = 'https://api.tavily.com/search';
+const SERPER_URL = 'https://google.serper.dev/search';
 const CF_VISION_MODEL = '@cf/meta/llama-3.2-11b-vision-instruct';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -41,7 +41,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     function: {
       name: 'web_search',
       description:
-        'Search the live web via Tavily. Use when the user asks about current events, recent facts, URLs, product prices, docs, or anything beyond your training cutoff. Returns a short AI-generated answer plus up to 5 source snippets with URLs.',
+        "Search Google via Serper. Use when the user asks about current events, recent facts, URLs, product prices, docs, or anything beyond your training cutoff. Returns Google's answer box (if any), the People-Also-Ask snippet, and the top organic results with title/link/snippet.",
       parameters: {
         type: 'object',
         properties: {
@@ -52,15 +52,18 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
           },
           max_results: {
             type: 'integer',
-            description: 'How many sources to return (1-10). Default 5.',
+            description: 'How many organic results to return (1-10). Default 5.',
             minimum: 1,
             maximum: 10,
           },
-          search_depth: {
+          gl: {
             type: 'string',
-            enum: ['basic', 'advanced'],
             description:
-              "'basic' is fast (default). 'advanced' does deeper crawling — use only for research-style queries.",
+              "Two-letter country code (e.g. 'us', 'uk', 'in') to localize results. Default 'us'.",
+          },
+          hl: {
+            type: 'string',
+            description: "Language code (e.g. 'en'). Default 'en'.",
           },
         },
         required: ['query'],
@@ -170,53 +173,82 @@ type ToolImpl = (args: unknown, signal?: AbortSignal) => Promise<unknown>;
 
 const TOOL_IMPL: Record<string, ToolImpl> = {
   web_search: async (args, signal) => {
-    const { query, max_results, search_depth } = parseWebSearchArgs(args);
+    const { query, max_results, gl, hl } = parseWebSearchArgs(args);
 
-    const apiKey = process.env.TAVILY_API_KEY;
+    const apiKey = process.env.SERPER_API_KEY;
     if (!apiKey) {
-      return { error: 'Web search is not configured on the server.' };
+      return {
+        error:
+          'Web search is not configured on the server (SERPER_API_KEY missing).',
+      };
     }
 
-    const res = await fetch(TAVILY_URL, {
+    // Serper's API: POST JSON body, key in X-API-KEY header. Returns
+    // Google's SERP shape: { answerBox?, knowledgeGraph?, organic[],
+    // peopleAlsoAsk?, relatedSearches? }.
+    const res = await fetch(SERPER_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-KEY': apiKey,
+      },
       body: JSON.stringify({
-        api_key: apiKey,
-        query,
-        max_results: max_results ?? 5,
-        search_depth: search_depth ?? 'basic',
-        include_answer: true,
+        q: query,
+        num: max_results ?? 5,
+        gl: gl ?? 'us',
+        hl: hl ?? 'en',
       }),
       signal,
     });
 
     if (!res.ok) {
       const text = (await res.text().catch(() => '')).slice(0, 300);
-      return { error: `Tavily responded ${res.status}: ${text}` };
+      return { error: `Serper responded ${res.status}: ${text}` };
     }
 
     const data = (await res.json()) as {
-      answer?: string;
-      results?: Array<{
+      answerBox?: { answer?: string; snippet?: string; title?: string };
+      knowledgeGraph?: { description?: string; title?: string };
+      organic?: Array<{
         title?: string;
-        url?: string;
-        content?: string;
-        score?: number;
+        link?: string;
+        snippet?: string;
+        date?: string;
       }>;
+      peopleAlsoAsk?: Array<{ question?: string; snippet?: string }>;
     };
 
-    // Trim each result's content — without this a single 10-page PDF can
-    // blow the context window.
-    const results = (data.results ?? []).slice(0, max_results ?? 5).map((r) => ({
-      title: r.title ?? '',
-      url: r.url ?? '',
-      snippet: (r.content ?? '').slice(0, 500),
-    }));
+    // Pull out a single direct-answer string if Google has one for this query.
+    const answer =
+      data.answerBox?.answer ??
+      data.answerBox?.snippet ??
+      data.knowledgeGraph?.description ??
+      null;
+
+    // Cap snippets to keep the context window sane.
+    const results = (data.organic ?? [])
+      .slice(0, max_results ?? 5)
+      .map((r) => ({
+        title: r.title ?? '',
+        url: r.link ?? '',
+        snippet: (r.snippet ?? '').slice(0, 500),
+        ...(r.date ? { date: r.date } : {}),
+      }));
+
+    // Top 3 follow-up questions can help the model decide whether to do a
+    // second search; cap content size.
+    const relatedQuestions = (data.peopleAlsoAsk ?? [])
+      .slice(0, 3)
+      .map((q) => ({
+        question: q.question ?? '',
+        snippet: (q.snippet ?? '').slice(0, 300),
+      }));
 
     return {
       query,
-      answer: data.answer ?? null,
+      answer,
       results,
+      ...(relatedQuestions.length > 0 ? { relatedQuestions } : {}),
     };
   },
 
@@ -300,7 +332,8 @@ const TOOL_IMPL: Record<string, ToolImpl> = {
 function parseWebSearchArgs(args: unknown): {
   query: string;
   max_results?: number;
-  search_depth?: 'basic' | 'advanced';
+  gl?: string;
+  hl?: string;
 } {
   if (!isRecord(args)) {
     throw new Error('web_search arguments must be a JSON object.');
@@ -320,15 +353,25 @@ function parseWebSearchArgs(args: unknown): {
     max_results = n;
   }
 
-  let search_depth: 'basic' | 'advanced' | undefined;
-  if (args.search_depth !== undefined) {
-    if (args.search_depth !== 'basic' && args.search_depth !== 'advanced') {
-      throw new Error("web_search `search_depth` must be 'basic' or 'advanced'.");
+  // Country / language hints — passed through to Serper untouched after a
+  // shape check. We don't enumerate every possible code; Serper validates.
+  let gl: string | undefined;
+  if (args.gl !== undefined) {
+    if (typeof args.gl !== 'string' || !/^[a-z]{2}$/.test(args.gl)) {
+      throw new Error("web_search `gl` must be a 2-letter country code.");
     }
-    search_depth = args.search_depth;
+    gl = args.gl;
   }
 
-  return { query: trimmed, max_results, search_depth };
+  let hl: string | undefined;
+  if (args.hl !== undefined) {
+    if (typeof args.hl !== 'string' || !/^[a-z]{2}(-[a-zA-Z]{2,4})?$/.test(args.hl)) {
+      throw new Error("web_search `hl` must be a language code (e.g. 'en').");
+    }
+    hl = args.hl;
+  }
+
+  return { query: trimmed, max_results, gl, hl };
 }
 
 function parseAnalyzeImageArgs(args: unknown): {
