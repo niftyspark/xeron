@@ -327,10 +327,15 @@ function formatExamples(examples: readonly (readonly MessageExample[])[]): strin
 }
 
 /**
- * The authoritative system prompt. Constructed once; route handlers import
- * this string and prepend it to each chat request's messages array.
+ * The FULL character prompt — bio + lore + examples + topics + rules.
+ *
+ * We no longer inject this by default (cost: ~2,300 tokens per turn). Kept
+ * exported for:
+ *   - the Preferences page, so the user can copy the full character into
+ *     their custom prompt if they want the rich persona back
+ *   - internal debugging / A-B comparisons
  */
-export const XERON_SYSTEM_PROMPT: string = [
+export const XERON_FULL_SYSTEM_PROMPT: string = [
   `You are ${XERON_CHARACTER.name}. ${XERON_CHARACTER.system}`,
   '',
   '## Who you are (bio)',
@@ -355,29 +360,86 @@ export const XERON_SYSTEM_PROMPT: string = [
   '- Stay in character as Xeron at all times. Write lowercase by default.',
   '- Keep replies short unless the user explicitly asks for depth — match the terse cadence of the example conversations.',
   '- When asked to actually perform illegal or harmful acts (as opposed to discussing them in lore), decline briefly and in-character, the way you decline "hack the cia" in the examples.',
-  '- Use the persistent memories about the user (if provided below) to personalize responses.',
-  '- Use your active skills (if provided below) when they are relevant to the request.',
-  '',
-  '## Tools you can call',
-  '- `web_search(query, ...)` — live Google search via Serper. Call this whenever the user asks about current events, recent facts, anything time-sensitive, or something that is clearly outside your training data. Don\'t guess or hallucinate when you can just look it up. Don\'t announce "let me search" — just do it and then answer with what you find. Cite sources by URL when the claim is non-obvious.',
-  '- `analyze_image(source, question?)` — describe an image. Call this when the user refers to an image by URL (https://…), or when they ask a follow-up question about an image that was already attached earlier in the conversation. Pass the URL or data URI as `source`.',
-  '- After a tool returns, fold its result into a natural in-character reply. Cite sources from web_search results when the user asks "where did you get that" or when the claim is controversial.',
-  '- If a tool returns an error object ({ "error": ... }), tell the user briefly what failed, in character. Don\'t retry silently more than once.',
 ].join('\n');
 
 /**
- * Compose the final system prompt for a request by appending dynamic
- * memory + skill context to the static persona.
+ * Ultra-minimal default persona. ~150 tokens on its own (before memories,
+ * skills, tools). This is what ships on every /api/ai/chat request unless
+ * the user has set a custom system prompt.
  *
- * @param memoriesBlock  Pre-formatted memory bullets (empty string if none).
- * @param skillsBlock    Pre-formatted skill block (empty string if none).
+ * We trade the rich voice for a ~85% per-turn cost reduction. The `You are
+ * Xeron` framing plus the short cadence/refusal rule is enough for the model
+ * to default to her name and basic personality; richer flavor can be
+ * restored per-user via the Preferences page.
+ */
+export const XERON_MINIMAL_SYSTEM_PROMPT: string = [
+  'You are Xeron, a helpful AI assistant. Write lowercase by default. Keep replies short and direct unless the user asks for depth. Decline requests to actually perform illegal or harmful acts, briefly and in-character.',
+].join('\n');
+
+/**
+ * Aliased for backward compatibility. All existing call sites use this
+ * symbol; changing them would produce unnecessary diff noise. Points at
+ * the minimal prompt now.
+ */
+export const XERON_SYSTEM_PROMPT = XERON_MINIMAL_SYSTEM_PROMPT;
+
+export interface ComposeOptions {
+  /** If provided AND non-empty, completely replaces the Xeron persona. */
+  customSystemPrompt?: string;
+  /** Pre-formatted memory bullets (empty string if none / disabled). */
+  memoriesBlock?: string;
+  /** Pre-formatted skill bullets (empty string if none enabled). */
+  skillsBlock?: string;
+  /** Pre-formatted tool-availability description (empty string if none). */
+  toolsBlock?: string;
+}
+
+/**
+ * Assemble the final system prompt.
+ *
+ * Order of precedence:
+ *   1. If `customSystemPrompt` is set, it is the ENTIRE persona (user opt-out
+ *      of the Xeron character per /dashboard/preferences).
+ *   2. Otherwise, the minimal Xeron prompt runs.
+ *
+ * Memories, skills, and tools blocks are always appended when non-empty,
+ * regardless of which persona is active, because they are request-specific
+ * context rather than personality.
  */
 export function composeSystemPrompt(
-  memoriesBlock: string,
-  skillsBlock: string,
+  memoriesBlockOrOpts: string | ComposeOptions = '',
+  skillsBlock: string = '',
 ): string {
-  const sections = [XERON_SYSTEM_PROMPT];
-  if (memoriesBlock.trim()) sections.push(memoriesBlock);
-  if (skillsBlock.trim()) sections.push(skillsBlock);
-  return sections.join('\n');
+  // Back-compat: old callers pass (memoriesBlock, skillsBlock). New callers
+  // pass a single ComposeOptions object.
+  const opts: ComposeOptions =
+    typeof memoriesBlockOrOpts === 'string'
+      ? { memoriesBlock: memoriesBlockOrOpts, skillsBlock }
+      : memoriesBlockOrOpts;
+
+  const persona =
+    opts.customSystemPrompt && opts.customSystemPrompt.trim()
+      ? opts.customSystemPrompt.trim()
+      : XERON_MINIMAL_SYSTEM_PROMPT;
+
+  const sections = [persona];
+  if (opts.toolsBlock?.trim()) sections.push(opts.toolsBlock.trim());
+  if (opts.memoriesBlock?.trim()) sections.push(opts.memoriesBlock.trim());
+  if (opts.skillsBlock?.trim()) sections.push(opts.skillsBlock.trim());
+  return sections.join('\n\n');
+}
+
+/**
+ * Short description of which tools are currently enabled for the request,
+ * so the model knows when to call them. Generated per-request based on the
+ * user's preferences. Returns empty string when no tools are enabled.
+ */
+export function buildToolsBlock(
+  tools: Array<{ name: string; description: string }>,
+): string {
+  if (tools.length === 0) return '';
+  return (
+    '## Tools you can call\n' +
+    tools.map((t) => `- \`${t.name}\` — ${t.description}`).join('\n')
+  );
 }

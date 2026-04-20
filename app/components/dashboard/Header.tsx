@@ -19,6 +19,7 @@ const pageTitles: Record<string, string> = {
   '/dashboard/models': 'Model Catalog',
   '/dashboard/learning': 'Learning Log',
   '/dashboard/history': 'History',
+  '/dashboard/preferences': 'Preferences',
   '/dashboard/settings': 'Settings',
 };
 

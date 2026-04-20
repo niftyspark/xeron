@@ -5,7 +5,7 @@ import { useUI } from '@/app/store/useUI';
 import { useRouter } from 'next/navigation';
 import {
   MessageSquare, Zap, Wrench, Calendar, Brain,
-  Cpu, BookOpen, History, Settings, Search
+  Cpu, BookOpen, History, Settings, Search, Sliders,
 } from 'lucide-react';
 
 const commands = [
@@ -17,6 +17,7 @@ const commands = [
   { id: 'models', label: 'Model Catalog', icon: Cpu, href: '/dashboard/models' },
   { id: 'learning', label: 'Learning Log', icon: BookOpen, href: '/dashboard/learning' },
   { id: 'history', label: 'History', icon: History, href: '/dashboard/history' },
+  { id: 'preferences', label: 'Preferences', icon: Sliders, href: '/dashboard/preferences' },
   { id: 'settings', label: 'Settings', icon: Settings, href: '/dashboard/settings' },
 ];
 

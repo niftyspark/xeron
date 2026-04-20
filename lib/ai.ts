@@ -3,6 +3,7 @@ import {
   TOOL_DEFINITIONS,
   executeTool,
   type ToolCallRequest,
+  type ToolDefinition,
 } from './tools';
 
 /**
@@ -188,6 +189,13 @@ interface StreamChatWithToolsOptions {
   temperature: number;
   messages: WireMessage[];
   signal: AbortSignal;
+  /**
+   * Tool definitions to pass to the provider. If omitted, the full
+   * TOOL_DEFINITIONS registry is used (back-compat). Pass an empty array
+   * to disable tool-calling entirely (the request becomes a simple chat
+   * completion with no tool round-trips).
+   */
+  tools?: readonly ToolDefinition[];
 }
 
 /**
@@ -213,6 +221,10 @@ export async function streamChatWithTools(
   const { apiKey, model, temperature, signal } = opts;
   const messages: WireMessage[] = [...opts.messages];
 
+  // Resolve tools: explicit array wins, otherwise full registry.
+  const tools = opts.tools ?? TOOL_DEFINITIONS;
+  const toolsActive = tools.length > 0;
+
   let finalContent = '';
 
   for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
@@ -234,8 +246,9 @@ export async function streamChatWithTools(
         top_p: 1,
         stream: false,
         // On the last round, force the model to answer without calling tools.
-        tools: lastRound ? undefined : TOOL_DEFINITIONS,
-        tool_choice: lastRound ? undefined : 'auto',
+        // If tools are disabled for this user, we skip the whole dance.
+        tools: !toolsActive || lastRound ? undefined : tools,
+        tool_choice: !toolsActive || lastRound ? undefined : 'auto',
       }),
       signal,
     });

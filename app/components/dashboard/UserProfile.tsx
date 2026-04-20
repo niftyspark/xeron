@@ -7,7 +7,7 @@ import { useUI } from '@/app/store/useUI';
 import { useUser } from '@/app/store/useUser';
 import {
   User, CreditCard, Zap, Settings, X, ChevronRight,
-  Check, Star, Crown, MessageSquare, Brain, Loader2,
+  Check, Star, Crown, MessageSquare, Brain, Loader2, Sliders,
 } from 'lucide-react';
 import { Button } from '@/app/components/ui/button';
 import { PLANS } from '@/lib/integrations';
@@ -186,6 +186,17 @@ export function UserProfile() {
 
                 {/* Links */}
                 <div className="space-y-1">
+                  <Button
+                    variant="ghost"
+                    className="w-full justify-start gap-2 text-white/60 hover:text-white"
+                    onClick={() => {
+                      setOpen(false);
+                      router.push('/dashboard/preferences');
+                    }}
+                  >
+                    <Sliders className="w-4 h-4" />
+                    Preferences
+                  </Button>
                   <Button
                     variant="ghost"
                     className="w-full justify-start gap-2 text-white/60 hover:text-white"

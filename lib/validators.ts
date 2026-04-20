@@ -144,13 +144,53 @@ export const LearningCreateSchema = z
 
 // ─── User settings ─────────────────────────────────────────────────────────
 
+/**
+ * Per-user preferences that gate prompt composition on the server side of
+ * /api/ai/chat. Every field has a safe default that matches the pre-
+ * preferences behavior, so an unset column behaves identically to an
+ * all-defaults row.
+ *
+ * `customSystemPrompt` is hard-capped to 8,000 chars. That cap exists for
+ * two independent reasons:
+ *   1. Cost — a user supplying a 200 KB system prompt would blow up token
+ *      bills on every turn.
+ *   2. Prompt-injection / exfiltration — the user OWNS their prompt and it
+ *      replaces the Xeron persona entirely (they opted out explicitly), but
+ *      we still don't want the field being used as a storage backdoor for
+ *      someone else's content.
+ */
+export const UserPreferencesSchema = z
+  .object({
+    memoryEnabled: z.boolean().default(true),
+    toolsEnabled: z
+      .object({
+        web_search: z.boolean().default(true),
+        analyze_image: z.boolean().default(true),
+      })
+      .strict()
+      .default({ web_search: true, analyze_image: true }),
+    enabledSkillIds: z.array(z.string().max(64)).max(64).default([]),
+    customSystemPrompt: z.string().max(8000).default(''),
+  })
+  .strict();
+
+export type UserPreferences = z.infer<typeof UserPreferencesSchema>;
+
+/** Canonical defaults used when a user has no preferences row yet. */
+export const DEFAULT_USER_PREFERENCES: UserPreferences = {
+  memoryEnabled: true,
+  toolsEnabled: { web_search: true, analyze_image: true },
+  enabledSkillIds: [],
+  customSystemPrompt: '',
+};
+
 // Strict whitelist — prevents arbitrary JSON blobs from being persisted.
 export const UserSettingsSchema = z
   .object({
     theme: z.enum(['dark', 'light', 'neumorphism', 'cyberpunk']).optional(),
     authMethod: z.literal('google').optional(),
     googleEmail: z.string().email().max(254).optional(),
-    // Add further keys here as product surfaces them.
+    preferences: UserPreferencesSchema.optional(),
   })
   .strict();
 
