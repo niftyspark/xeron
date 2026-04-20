@@ -2,25 +2,22 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { listToolkits, getToolkit } from '@/lib/composio';
+import { requireAuth, withErrors } from '@/lib/api-guard';
 
-export async function GET(req: NextRequest) {
-  try {
-    const slug = req.nextUrl.searchParams.get('slug');
+export const GET = withErrors(async (req: NextRequest) => {
+  // Audit #24: authenticate before hitting the paid upstream.
+  const auth = await requireAuth(req);
+  if (auth instanceof NextResponse) return auth;
 
-    if (slug) {
-      const toolkit = await getToolkit(slug);
-      return NextResponse.json({ toolkit });
-    }
-
-    const result = await listToolkits();
-    // result might be { items: [...] } or an array
-    const toolkits = Array.isArray(result) ? result : (result?.items || result);
-    return NextResponse.json({ toolkits });
-  } catch (error: any) {
-    console.error('Toolkits error:', error?.message || error);
-    return NextResponse.json(
-      { error: error?.message || 'Failed to list toolkits' },
-      { status: 500 }
-    );
+  const slug = req.nextUrl.searchParams.get('slug');
+  if (slug) {
+    const toolkit = await getToolkit(slug);
+    return NextResponse.json({ toolkit });
   }
-}
+
+  const result = await listToolkits();
+  const toolkits = Array.isArray(result)
+    ? result
+    : (result as { items?: unknown[] })?.items ?? result;
+  return NextResponse.json({ toolkits });
+});

@@ -39,27 +39,25 @@ export default function LearningPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    async function fetchLearningLogs() {
+    let cancelled = false;
+    (async () => {
       try {
-        const { getClientToken } = await import('@/lib/client-auth');
-        const token = getClientToken();
-        const res = await fetch('/api/learning', {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-        if (!res.ok) {
-          throw new Error('Failed to fetch learning logs');
+        const { authFetch } = await import('@/lib/client-auth');
+        const res = await authFetch('/api/learning');
+        if (!res.ok) throw new Error('Failed to fetch learning logs');
+        const data = (await res.json()) as LearningEntry[];
+        if (!cancelled) setEntries(data);
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Failed to load learning logs');
         }
-        const data = await res.json();
-        setEntries(data);
-      } catch (err: any) {
-        setError(err.message || 'Failed to load learning logs');
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
-    }
-    fetchLearningLogs();
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   if (loading) {

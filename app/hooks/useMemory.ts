@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { getClientToken } from '@/lib/client-auth';
+import { authFetch } from '@/lib/client-auth';
 import { toast } from 'sonner';
 
 interface Memory {
@@ -18,16 +18,16 @@ export function useMemory() {
   const [loading, setLoading] = useState(false);
 
   const fetchMemories = useCallback(async (category?: string) => {
-    const token = getClientToken();
-    if (!token) return;
     setLoading(true);
     try {
-      const params = category ? `?category=${category}` : '';
-      const res = await fetch(`/api/memories${params}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const params = category ? `?category=${encodeURIComponent(category)}` : '';
+      const res = await authFetch(`/api/memories${params}`);
+      if (res.status === 401) {
+        setMemories([]);
+        return;
+      }
       if (res.ok) {
-        const data = await res.json();
+        const data = (await res.json()) as Memory[];
         setMemories(Array.isArray(data) ? data : []);
       }
     } catch (err) {
@@ -37,49 +37,51 @@ export function useMemory() {
     }
   }, []);
 
-  const addMemory = useCallback(async (category: string, content: string, importance = 0.5) => {
-    const token = getClientToken();
-    if (!token) {
-      toast.error('Session expired. Please refresh the page.');
-      return null;
-    }
-    try {
-      const res = await fetch('/api/memories', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ category, content, importance }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setMemories(prev => [data, ...prev]);
-        toast.success('Memory added');
-        return data;
+  const addMemory = useCallback(
+    async (category: string, content: string, importance = 0.5) => {
+      try {
+        const res = await authFetch('/api/memories', {
+          method: 'POST',
+          json: { category, content, importance },
+        });
+        if (res.status === 401) {
+          toast.error('Session expired. Please sign in again.');
+          return null;
+        }
+        if (res.ok) {
+          const data = (await res.json()) as Memory;
+          setMemories((prev) => [data, ...prev]);
+          toast.success('Memory added');
+          return data;
+        }
+        const err = (await res.json().catch(() => ({}))) as { error?: string };
+        toast.error(err.error || 'Failed to add memory');
+        return null;
+      } catch {
+        toast.error('Failed to add memory');
+        return null;
       }
-      const err = await res.json().catch(() => ({ error: 'Failed' }));
-      toast.error(err.error || 'Failed to add memory');
-      return null;
-    } catch (err) {
-      toast.error('Failed to add memory');
-      return null;
-    }
-  }, []);
+    },
+    [],
+  );
 
   const deleteMemory = useCallback(async (id: string) => {
-    const token = getClientToken();
-    if (!token) return;
     try {
-      const res = await fetch(`/api/memories?id=${id}`, {
+      const res = await authFetch(`/api/memories?id=${encodeURIComponent(id)}`, {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
-        setMemories(prev => prev.filter(m => m.id !== id));
+        setMemories((prev) => prev.filter((m) => m.id !== id));
         toast.success('Memory deleted');
+      } else if (res.status === 404) {
+        // Silently remove from UI — server says it's gone.
+        setMemories((prev) => prev.filter((m) => m.id !== id));
+      } else {
+        toast.error('Failed to delete memory');
       }
-    } catch {}
+    } catch {
+      toast.error('Failed to delete memory');
+    }
   }, []);
 
   return { memories, loading, fetchMemories, addMemory, deleteMemory };

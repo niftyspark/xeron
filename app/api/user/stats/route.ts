@@ -1,72 +1,57 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyToken, getTokenFromHeaders } from '@/lib/auth';
+import { requireAuth, withErrors } from '@/lib/api-guard';
 import { db, schema } from '@/lib/db';
-import { eq, and, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { BUILTIN_SKILLS } from '@/lib/skills';
-import { ensureTables } from '@/lib/ensure-tables';
 
-export async function GET(req: NextRequest) {
-  try {
-    const token = getTokenFromHeaders(req.headers);
-    if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    const payload = await verifyToken(token);
-    if (!payload) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+export const GET = withErrors(async (req: NextRequest) => {
+  const auth = await requireAuth(req);
+  if (auth instanceof NextResponse) return auth;
 
-    await ensureTables();
-    // Count active memories
-    const memoriesResult = await db
+  const [memoriesRow, conversationsRow] = await Promise.all([
+    db
       .select({ count: sql<number>`count(*)` })
       .from(schema.memories)
       .where(
         and(
-          eq(schema.memories.userId, payload.userId),
-          eq(schema.memories.isActive, true)
-        )
-      );
-    const memoriesCount = Number(memoriesResult[0]?.count ?? 0);
-
-    // Count conversations
-    const conversationsResult = await db
+          eq(schema.memories.userId, auth.userId),
+          eq(schema.memories.isActive, true),
+        ),
+      ),
+    db
       .select({ count: sql<number>`count(*)` })
       .from(schema.conversations)
-      .where(eq(schema.conversations.userId, payload.userId));
-    const conversationsCount = Number(conversationsResult[0]?.count ?? 0);
+      .where(eq(schema.conversations.userId, auth.userId)),
+  ]);
 
-    // Skills count from builtin list
-    const skillsEnabled = BUILTIN_SKILLS.length;
+  const memoriesCount = Number(memoriesRow[0]?.count ?? 0);
+  const conversationsCount = Number(conversationsRow[0]?.count ?? 0);
+  const skillsEnabled = BUILTIN_SKILLS.length;
 
-    // User tier from subscriptions or default
-    let userTier = 'free';
-    try {
-      const sub = await db.query.userSubscriptions.findFirst({
-        where: and(
-          eq(schema.userSubscriptions.userId, payload.userId),
-          eq(schema.userSubscriptions.status, 'active')
-        ),
-        with: undefined,
-      });
-      if (sub) {
-        const subscription = await db.query.subscriptions.findFirst({
-          where: eq(schema.subscriptions.id, sub.subscriptionId),
-        });
-        if (subscription) {
-          userTier = subscription.tier;
-        }
-      }
-    } catch {
-      // If subscription tables don't exist yet, default to free
-    }
+  // Fetch active subscription with a single JOIN (audit #69 N+1 fix).
+  let userTier = 'free';
+  const subRows = await db
+    .select({ tier: schema.subscriptions.tier })
+    .from(schema.userSubscriptions)
+    .innerJoin(
+      schema.subscriptions,
+      eq(schema.userSubscriptions.subscriptionId, schema.subscriptions.id),
+    )
+    .where(
+      and(
+        eq(schema.userSubscriptions.userId, auth.userId),
+        eq(schema.userSubscriptions.status, 'active'),
+      ),
+    )
+    .limit(1);
+  if (subRows[0]?.tier) userTier = subRows[0].tier;
 
-    return NextResponse.json({
-      memoriesCount,
-      conversationsCount,
-      skillsEnabled,
-      userTier,
-    });
-  } catch (err) {
-    console.error('User stats error:', err);
-    return NextResponse.json({ error: 'Server error' }, { status: 500 });
-  }
-}
+  return NextResponse.json({
+    memoriesCount,
+    conversationsCount,
+    skillsEnabled,
+    userTier,
+  });
+});

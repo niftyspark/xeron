@@ -3,16 +3,24 @@
 import { motion } from 'framer-motion';
 import { useChat } from '@/app/store/useChat';
 import { Badge } from '@/app/components/ui/badge';
-import { Button } from '@/app/components/ui/button';
 import { Input } from '@/app/components/ui/input';
 import { MessageSquare, Search, Trash2, Pin, Clock } from 'lucide-react';
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { formatRelativeTime } from '@/lib/utils';
 import { useUser } from '@/app/store/useUser';
 
 export default function HistoryPage() {
-  const { conversations, setActiveConversation, deleteConversationFromDB, loadConversations, conversationsLoaded, loadMessages } = useChat();
+  const {
+    conversations,
+    setActiveConversation,
+    deleteConversationFromDB,
+    loadConversations,
+    conversationsLoaded,
+    loadMessages,
+  } = useChat();
   const { isAuthenticated } = useUser();
+  const router = useRouter();
   const [search, setSearch] = useState('');
 
   useEffect(() => {
@@ -62,6 +70,7 @@ export default function HistoryPage() {
               onClick={() => {
                 setActiveConversation(conv.id);
                 loadMessages(conv.id);
+                router.push('/dashboard');
               }}
             >
               <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center shrink-0">

@@ -237,11 +237,10 @@ export default function CodeAgentPage() {
 
     try {
       const action = mode === 'plan' ? 'explain' : 'generate';
-      const { getAuthHeaders } = await import('@/lib/client-auth');
-      const res = await fetch('/api/ai/code', {
+      const { authFetch } = await import('@/lib/client-auth');
+      const res = await authFetch('/api/ai/code', {
         method: 'POST',
-        headers: getAuthHeaders(),
-        body: JSON.stringify({ prompt, files, framework, action }),
+        json: { prompt, files, framework, action },
         signal: abortRef.current.signal,
       });
 

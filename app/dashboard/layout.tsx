@@ -1,13 +1,27 @@
 'use client';
 
+/**
+ * Dashboard layout with cookie-backed auth.
+ *
+ * Changes vs the audited version:
+ *  - No localStorage token polling. Auth state is decided by a single
+ *    /api/user probe — the browser sends the httpOnly cookie automatically.
+ *  - Turnstile token flows from <TurnstileWidget onToken> into the Google
+ *    sign-in fetch. Sign-in is disabled until a token is present.
+ *  - Logout calls /api/auth/logout to clear the cookie server-side, then
+ *    routes to '/' via next/router (no window.location reloads).
+ */
+
 import { Sidebar } from '@/app/components/dashboard/Sidebar';
 import { Header } from '@/app/components/dashboard/Header';
 import { CommandPalette } from '@/app/components/dashboard/CommandPalette';
 import { useUI } from '@/app/store/useUI';
 import { useUser } from '@/app/store/useUser';
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { Sparkles, LogOut } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { Sparkles } from 'lucide-react';
 import { TurnstileWidget } from '@/app/components/auth/TurnstileWidget';
+import { authFetch } from '@/lib/client-auth';
 
 declare global {
   interface Window {
@@ -19,100 +33,99 @@ declare global {
             callback: (response: { credential: string }) => void;
             auto_select?: boolean;
           }) => void;
-          prompt: (callback?: (notification: { isNotDisplayed: () => boolean; isSkippedMoment: () => boolean }) => void) => void;
-          renderButton: (element: HTMLElement, config: Record<string, unknown>) => void;
+          prompt: (callback?: (n: {
+            isNotDisplayed: () => boolean;
+            isSkippedMoment: () => boolean;
+          }) => void) => void;
+          renderButton: (
+            element: HTMLElement,
+            config: Record<string, unknown>,
+          ) => void;
         };
       };
     };
   }
 }
 
-function hasValidToken(): boolean {
-  try {
-    const raw = localStorage.getItem('xeron-user');
-    if (!raw) return false;
-    const parsed = JSON.parse(raw);
-    const t = parsed?.state?.token;
-    return typeof t === 'string' && t.includes('.') && t.length > 20;
-  } catch {
-    return false;
-  }
-}
-
 function GoogleSignInButton() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const tsTokenRef = useRef<string | null>(null);
   const btnRef = useRef<HTMLDivElement>(null);
-  const initializedRef = useRef(false);
+  const initialisedRef = useRef(false);
 
-  const handleCredential = useCallback(async (response: { credential: string }) => {
-    setLoading(true);
-    setError('');
-    try {
-      const res = await fetch('/api/auth/google', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ credential: response.credential }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || 'Authentication failed');
+  // Keep a ref in sync so the Google callback (which has a stable closure)
+  // always sees the latest Turnstile token without re-initialising the widget.
+  useEffect(() => {
+    tsTokenRef.current = turnstileToken;
+  }, [turnstileToken]);
+
+  const handleCredential = useCallback(
+    async (response: { credential: string }) => {
+      const ts = tsTokenRef.current;
+      if (!ts) {
+        setError('Please complete the bot verification before signing in.');
+        return;
       }
-      const data = await res.json();
-      const token = data.token;
-      const user = data.user;
 
-      // Save to zustand store
-      useUser.getState().setUser({
-        userId: user.id,
-        walletAddress: user.walletAddress || '',
-        displayName: user.displayName || '',
-        token,
-      });
+      setLoading(true);
+      setError('');
+      try {
+        const res = await authFetch('/api/auth/google', {
+          method: 'POST',
+          json: { credential: response.credential, turnstileToken: ts },
+        });
+        if (!res.ok) {
+          const err = (await res.json().catch(() => ({}))) as { error?: string };
+          throw new Error(err.error || 'Authentication failed');
+        }
+        const data = (await res.json()) as {
+          user: {
+            id: string;
+            walletAddress: string;
+            displayName: string | null;
+            avatarUrl: string | null;
+          };
+        };
 
-      // Force write to localStorage BEFORE reload
-      localStorage.setItem('xeron-user', JSON.stringify({
-        state: {
-          token,
-          userId: user.id,
-          walletAddress: user.walletAddress || '',
-          displayName: user.displayName || '',
-          isAuthenticated: true,
-          preferredModel: 'anthropic/claude-opus-4.6',
-        },
-        version: 0,
-      }));
+        // Cookie is already set by the server. Only store user metadata.
+        useUser.getState().setUser({
+          userId: data.user.id,
+          walletAddress: data.user.walletAddress,
+          displayName: data.user.displayName,
+          avatarUrl: data.user.avatarUrl,
+        });
 
-      // Reload page
-      window.location.reload();
-    } catch (err: any) {
-      console.error('Google sign-in error:', err);
-      setError(err.message || 'Sign-in failed');
-      setLoading(false);
-    }
-  }, []);
+        // Router refresh picks up the new authenticated state.
+        window.location.assign('/dashboard');
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Sign-in failed';
+        setError(msg);
+        setLoading(false);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
-    if (initializedRef.current) return;
+    if (initialisedRef.current) return;
 
     const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
     if (!clientId) {
-      setError('Google Client ID not configured');
+      setError('Google Client ID is not configured.');
       return;
     }
 
-    // Load script
-    const existingScript = document.querySelector('script[src="https://accounts.google.com/gsi/client"]');
-    const initGoogle = () => {
-      if (!window.google || initializedRef.current) return;
-      initializedRef.current = true;
+    const init = () => {
+      if (!window.google || initialisedRef.current) return;
+      initialisedRef.current = true;
 
       window.google.accounts.id.initialize({
         client_id: clientId,
         callback: handleCredential,
       });
 
-      // Render the official Google button — this is the most reliable method
       if (btnRef.current) {
         window.google.accounts.id.renderButton(btnRef.current, {
           type: 'standard',
@@ -126,14 +139,18 @@ function GoogleSignInButton() {
       }
     };
 
-    if (existingScript) {
-      initGoogle();
+    const existing = document.querySelector<HTMLScriptElement>(
+      'script[src="https://accounts.google.com/gsi/client"]',
+    );
+    if (existing) {
+      if (window.google) init();
+      else existing.addEventListener('load', init, { once: true });
     } else {
       const script = document.createElement('script');
       script.src = 'https://accounts.google.com/gsi/client';
       script.async = true;
       script.defer = true;
-      script.onload = initGoogle;
+      script.onload = init;
       document.head.appendChild(script);
     }
   }, [handleCredential]);
@@ -148,15 +165,24 @@ function GoogleSignInButton() {
   }
 
   return (
-    <div className="flex flex-col items-center gap-2">
-      {/* Google renders its own button here */}
-      <div ref={btnRef} />
-      {error && (
-        <p className="text-xs text-red-400 text-center max-w-[280px]">{error}</p>
+    <div className="flex flex-col items-center gap-3">
+      <div
+        ref={btnRef}
+        className={turnstileToken ? '' : 'opacity-40 pointer-events-none'}
+        aria-disabled={!turnstileToken}
+      />
+      <TurnstileWidget onToken={setTurnstileToken} />
+      {!turnstileToken && (
+        <p className="text-[11px] text-white/40 text-center">
+          Complete bot verification above to enable sign-in.
+        </p>
       )}
+      {error && <p className="text-xs text-red-400 text-center max-w-[280px]">{error}</p>}
     </div>
   );
 }
+
+type AuthState = 'loading' | 'authenticated' | 'unauthenticated';
 
 export default function DashboardLayout({
   children,
@@ -164,40 +190,48 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const { sidebarOpen } = useUI();
-  const { token, isAuthenticated, logout } = useUser();
-  const [authState, setAuthState] = useState<'loading' | 'authenticated' | 'unauthenticated'>('loading');
+  const { clear, setUser } = useUser();
+  const router = useRouter();
+  const [authState, setAuthState] = useState<AuthState>('loading');
 
-  // Check auth on mount
+  // Single source of truth: ask the server whether we are authenticated.
+  // The cookie, if present, is attached automatically.
   useEffect(() => {
-    const timer = setTimeout(() => {
-      if (hasValidToken()) {
-        setAuthState('authenticated');
-      } else {
-        setAuthState('unauthenticated');
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await authFetch('/api/user');
+        if (cancelled) return;
+        if (res.ok) {
+          const user = (await res.json()) as {
+            id: string;
+            walletAddress: string;
+            displayName: string | null;
+            avatarUrl: string | null;
+          };
+          setUser({
+            userId: user.id,
+            walletAddress: user.walletAddress,
+            displayName: user.displayName,
+            avatarUrl: user.avatarUrl,
+          });
+          setAuthState('authenticated');
+        } else {
+          clear();
+          setAuthState('unauthenticated');
+        }
+      } catch {
+        if (!cancelled) {
+          clear();
+          setAuthState('unauthenticated');
+        }
       }
-    }, 100);
-    return () => clearTimeout(timer);
-  }, []);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [clear, setUser]);
 
-  // Re-check when token changes (after login)
-  useEffect(() => {
-    if (token && token.includes('.') && token.length > 20) {
-      setAuthState('authenticated');
-    }
-  }, [token]);
-
-  // Also poll localStorage for token changes (catches external writes)
-  useEffect(() => {
-    if (authState === 'authenticated') return;
-    const interval = setInterval(() => {
-      if (hasValidToken()) {
-        setAuthState('authenticated');
-      }
-    }, 500);
-    return () => clearInterval(interval);
-  }, [authState]);
-
-  // Keyboard shortcuts
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
@@ -209,15 +243,6 @@ export default function DashboardLayout({
     return () => window.removeEventListener('keydown', down);
   }, []);
 
-  const handleLogout = useCallback(() => {
-    logout();
-    localStorage.removeItem('xeron-user');
-    localStorage.removeItem('xeron-chat');
-    localStorage.removeItem('xeron-code-sessions');
-    setAuthState('unauthenticated');
-  }, [logout]);
-
-  // Loading
   if (authState === 'loading') {
     return (
       <div className="flex h-screen items-center justify-center bg-[#0a0a0f]">
@@ -226,7 +251,6 @@ export default function DashboardLayout({
     );
   }
 
-  // NOT AUTHENTICATED — BLOCKED. Must sign in.
   if (authState === 'unauthenticated') {
     return (
       <div className="flex h-screen items-center justify-center bg-[#0a0a0f] relative overflow-hidden">
@@ -247,8 +271,6 @@ export default function DashboardLayout({
 
           <GoogleSignInButton />
 
-          <TurnstileWidget />
-
           <p className="text-[10px] text-white/15 mt-4">
             By signing in you agree to our Terms of Service
           </p>
@@ -257,15 +279,16 @@ export default function DashboardLayout({
     );
   }
 
-  // AUTHENTICATED — show dashboard
   return (
     <div className="flex h-screen overflow-hidden bg-[#0a0a0f]">
       <Sidebar />
-      <div className={`flex-1 flex flex-col overflow-hidden transition-all duration-300 ${sidebarOpen ? 'md:ml-64' : 'md:ml-16'}`}>
+      <div
+        className={`flex-1 flex flex-col overflow-hidden transition-all duration-300 ${
+          sidebarOpen ? 'md:ml-64' : 'md:ml-16'
+        }`}
+      >
         <Header />
-        <main className="flex-1 overflow-auto">
-          {children}
-        </main>
+        <main className="flex-1 overflow-auto">{children}</main>
       </div>
       <CommandPalette />
     </div>

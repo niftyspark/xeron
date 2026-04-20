@@ -19,6 +19,8 @@ build
 
 # debug
 npm-debug.log*
+*.log
+dev.log
 
 # local env files
 .env
@@ -31,7 +33,7 @@ npm-debug.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# drizzle
-drizzle/
+# drizzle metadata cache (generated) — keep migration .sql files committed
+drizzle/meta/
 
 .vercel

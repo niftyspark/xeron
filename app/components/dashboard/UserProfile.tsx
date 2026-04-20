@@ -2,14 +2,16 @@
 
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useRouter } from 'next/navigation';
 import { useUI } from '@/app/store/useUI';
 import { useUser } from '@/app/store/useUser';
-import { 
-  User, CreditCard, Zap, Clock, Settings, X, ChevronRight,
-  Check, Star, Crown, Database, MessageSquare, Brain, Loader2
+import {
+  User, CreditCard, Zap, Settings, X, ChevronRight,
+  Check, Star, Crown, MessageSquare, Brain, Loader2,
 } from 'lucide-react';
 import { Button } from '@/app/components/ui/button';
 import { PLANS } from '@/lib/integrations';
+import { authFetch } from '@/lib/client-auth';
 
 const tierIcons: Record<string, React.ElementType> = {
   free: Check,
@@ -29,32 +31,39 @@ export function UserProfile() {
   const [open, setOpen] = useState(false);
   const [stats, setStats] = useState<UserStats | null>(null);
   const [loading, setLoading] = useState(false);
-  const { userTier, messagesRemaining, messagesLimit, setUserTier, setMessagesRemaining, setMessagesLimit } = useUI();
-  const { displayName, walletAddress, token } = useUser();
+  const { userTier, messagesRemaining, messagesLimit, setUserTier } = useUI();
+  const { displayName, walletAddress, isAuthenticated } = useUser();
+  const router = useRouter();
 
-  const currentPlan = PLANS.find(p => p.id === userTier) || PLANS[0];
+  const currentPlan = PLANS.find((p) => p.id === userTier) || PLANS[0];
   const TierIcon = tierIcons[userTier] || Check;
-  const usagePercent = messagesLimit > 0 ? Math.min((messagesRemaining / messagesLimit) * 100, 100) : 0;
+  const hasLimit = messagesLimit > 0;
+  const usagePercent = hasLimit
+    ? Math.min((messagesRemaining / messagesLimit) * 100, 100)
+    : 100;
 
   useEffect(() => {
-    if (open && token) {
-      setLoading(true);
-      fetch('/api/user/stats', {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-        .then((res) => res.json())
-        .then((data) => {
-          if (!data.error) {
-            setStats(data);
-            if (data.userTier) {
-              setUserTier(data.userTier);
-            }
-          }
-        })
-        .catch(() => {})
-        .finally(() => setLoading(false));
-    }
-  }, [open, token, setUserTier]);
+    if (!open || !isAuthenticated) return;
+    let cancelled = false;
+    setLoading(true);
+    (async () => {
+      try {
+        const res = await authFetch('/api/user/stats');
+        if (!res.ok) return;
+        const data = (await res.json()) as UserStats;
+        if (cancelled) return;
+        setStats(data);
+        if (data.userTier) setUserTier(data.userTier);
+      } catch {
+        /* ignore */
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, isAuthenticated, setUserTier]);
 
   return (
     <div className="relative">
@@ -109,21 +118,33 @@ export function UserProfile() {
                       <TierIcon className="w-4 h-4 text-blue-400" />
                       <span className="text-sm text-white">{currentPlan.name}</span>
                     </div>
-                    <Button variant="ghost" size="sm" className="text-xs text-blue-400">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-xs text-blue-400"
+                      onClick={() => {
+                        setOpen(false);
+                        router.push('/dashboard/tools');
+                      }}
+                    >
                       Upgrade
                       <ChevronRight className="w-3 h-3 ml-1" />
                     </Button>
                   </div>
                   <div className="flex items-center gap-2 text-xs text-white/50">
                     <Zap className="w-3 h-3" />
-                    {messagesRemaining} / {messagesLimit > 0 ? messagesLimit : 'Unlimited'} messages today
+                    {hasLimit
+                      ? `${messagesRemaining} / ${messagesLimit} messages today`
+                      : 'Unlimited messages'}
                   </div>
-                  <div className="mt-2 h-1.5 rounded-full bg-white/10 overflow-hidden">
-                    <div 
-                      className="h-full bg-blue-500 rounded-full transition-all" 
-                      style={{ width: `${usagePercent}%` }}
-                    />
-                  </div>
+                  {hasLimit && (
+                    <div className="mt-2 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                      <div
+                        className="h-full bg-blue-500 rounded-full transition-all"
+                        style={{ width: `${usagePercent}%` }}
+                      />
+                    </div>
+                  )}
                 </div>
 
                 {/* Quick Stats */}
@@ -134,7 +155,7 @@ export function UserProfile() {
                       {loading ? (
                         <Loader2 className="w-3 h-3 animate-spin mx-auto" />
                       ) : (
-                        stats?.conversationsCount ?? messagesRemaining
+                        stats?.conversationsCount ?? 0
                       )}
                     </p>
                     <p className="text-[10px] text-white/30">Chats</p>
@@ -165,18 +186,24 @@ export function UserProfile() {
 
                 {/* Links */}
                 <div className="space-y-1">
-                  <Button 
-                    variant="ghost" 
+                  <Button
+                    variant="ghost"
                     className="w-full justify-start gap-2 text-white/60 hover:text-white"
-                    onClick={() => window.location.href = '/dashboard/settings'}
+                    onClick={() => {
+                      setOpen(false);
+                      router.push('/dashboard/settings');
+                    }}
                   >
                     <Settings className="w-4 h-4" />
                     Settings
                   </Button>
-                  <Button 
-                    variant="ghost" 
+                  <Button
+                    variant="ghost"
                     className="w-full justify-start gap-2 text-white/60 hover:text-white"
-                    onClick={() => window.location.href = '/dashboard/tools'}
+                    onClick={() => {
+                      setOpen(false);
+                      router.push('/dashboard/tools');
+                    }}
                   >
                     <CreditCard className="w-4 h-4" />
                     Subscription

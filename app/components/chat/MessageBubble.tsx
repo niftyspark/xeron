@@ -1,18 +1,64 @@
 'use client';
 
+/**
+ * Assistant / user message renderer.
+ *
+ * Audit #18 addressed: the markdown pipeline now runs through
+ * rehype-sanitize and an explicit URL transform that rejects anything
+ * other than http(s) / mailto / site-relative URLs. This neutralises the
+ * `[click me](javascript:…)` XSS vector that used to allow LLM output to
+ * exfiltrate auth state. (As of Step 2 the JWT is httpOnly, but the
+ * sanitizer is defence-in-depth and also blocks data: image URLs embedded
+ * by a hostile LLM.)
+ */
+
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { ChatMessage } from '@/app/store/useChat';
-import { Copy, RotateCcw, ThumbsUp, ThumbsDown, User, Sparkles, Check } from 'lucide-react';
-import { useState } from 'react';
+import { Copy, ThumbsUp, ThumbsDown, User, Sparkles, Check } from 'lucide-react';
+import { useState, useMemo } from 'react';
 import { toast } from 'sonner';
 import ReactMarkdown from 'react-markdown';
+import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { formatRelativeTime } from '@/lib/utils';
+import { authFetch } from '@/lib/client-auth';
 
 interface MessageBubbleProps {
   message: ChatMessage;
+}
+
+/**
+ * Hardened sanitizer schema: inherits the safe defaults and explicitly
+ * whitelists attributes needed for our styling. Any attribute or tag not in
+ * the schema is dropped.
+ */
+const markdownSchema = {
+  ...defaultSchema,
+  attributes: {
+    ...defaultSchema.attributes,
+    code: [...(defaultSchema.attributes?.code ?? []), ['className']],
+    a: [...(defaultSchema.attributes?.a ?? []), ['target'], ['rel']],
+  },
+  // `protocols` on defaultSchema already restricts href/src to safe schemes
+  // (http, https, mailto, irc, ircs, tel). We do not add javascript: or data:.
+};
+
+/**
+ * URL transformer that runs BEFORE sanitize (react-markdown v9 API).
+ * Only allows http/https/mailto and site-relative URLs.
+ */
+function safeUrl(url: string): string {
+  if (!url) return '#';
+  if (url.startsWith('/') || url.startsWith('#')) return url;
+  try {
+    const parsed = new URL(url, 'https://xeron.local');
+    if (['http:', 'https:', 'mailto:'].includes(parsed.protocol)) return url;
+  } catch {
+    /* fallthrough */
+  }
+  return '#';
 }
 
 export function MessageBubble({ message }: MessageBubbleProps) {
@@ -30,32 +76,32 @@ export function MessageBubble({ message }: MessageBubbleProps) {
     if (feedbackGiven) return;
 
     try {
-      const { getClientToken } = await import('@/lib/client-auth');
-      const token = getClientToken();
-      const res = await fetch('/api/learning', {
+      const res = await authFetch('/api/learning', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
+        json: {
           trigger: 'user_feedback',
           lesson: message.content.slice(0, 200),
           appliedTo: 'chat_response',
           confidence: type === 'up' ? 1.0 : 0.0,
-        }),
+        },
       });
-
-      if (!res.ok) {
-        throw new Error('Failed to submit feedback');
-      }
-
+      if (!res.ok) throw new Error('Failed to submit feedback');
       setFeedbackGiven(type);
-      toast.success(type === 'up' ? 'Thanks for the positive feedback!' : 'Feedback recorded. We\'ll improve.');
-    } catch (err) {
+      toast.success(
+        type === 'up'
+          ? 'Thanks for the positive feedback!'
+          : "Feedback recorded. We'll improve.",
+      );
+    } catch {
       toast.error('Failed to submit feedback');
     }
   };
+
+  // react-markdown expects a mutable Pluggable[] — do NOT freeze this array.
+  const markdownRehype = useMemo<Array<[typeof rehypeSanitize, typeof markdownSchema]>>(
+    () => [[rehypeSanitize, markdownSchema]],
+    [],
+  );
 
   return (
     <motion.div
@@ -63,13 +109,14 @@ export function MessageBubble({ message }: MessageBubbleProps) {
       animate={{ opacity: 1, y: 0 }}
       className={cn('flex gap-3 py-4', isUser ? 'flex-row-reverse' : '')}
     >
-      {/* Avatar */}
-      <div className={cn(
-        'w-8 h-8 rounded-lg flex items-center justify-center shrink-0',
-        isUser 
-          ? 'bg-blue-600/20 border border-blue-500/20' 
-          : 'bg-gradient-to-br from-blue-600/20 to-cyan-500/20 border border-cyan-500/20'
-      )}>
+      <div
+        className={cn(
+          'w-8 h-8 rounded-lg flex items-center justify-center shrink-0',
+          isUser
+            ? 'bg-blue-600/20 border border-blue-500/20'
+            : 'bg-gradient-to-br from-blue-600/20 to-cyan-500/20 border border-cyan-500/20',
+        )}
+      >
         {isUser ? (
           <User className="w-4 h-4 text-blue-400" />
         ) : (
@@ -77,30 +124,39 @@ export function MessageBubble({ message }: MessageBubbleProps) {
         )}
       </div>
 
-      {/* Message content */}
       <div className={cn('flex-1 max-w-[85%]', isUser ? 'items-end' : '')}>
-        <div className={cn(
-          'rounded-2xl px-4 py-3',
-          isUser ? 'message-user ml-auto' : 'message-assistant'
-        )}>
+        <div
+          className={cn(
+            'rounded-2xl px-4 py-3',
+            isUser ? 'message-user ml-auto' : 'message-assistant',
+          )}
+        >
           {isUser ? (
             <div>
               <p className="text-sm text-white/90 whitespace-pre-wrap">{message.content}</p>
-              {/* Render attached images */}
-              {(message as any).metadata?.images?.map((img: string, i: number) => (
-                <div key={i} className="mt-2 rounded-xl overflow-hidden border border-white/10 inline-block">
-                  <img src={img} alt="Attached" className="max-w-xs max-h-48 object-cover rounded-xl" />
+              {message.metadata?.images?.map((img, i) => (
+                <div
+                  key={i}
+                  className="mt-2 rounded-xl overflow-hidden border border-white/10 inline-block"
+                >
+                  <img
+                    src={img}
+                    alt="Attached"
+                    className="max-w-xs max-h-48 object-cover rounded-xl"
+                  />
                 </div>
               ))}
             </div>
           ) : (
             <div className="prose prose-invert prose-sm max-w-none">
               <ReactMarkdown
+                rehypePlugins={markdownRehype}
+                urlTransform={safeUrl}
                 components={{
-                  code({ node, className, children, ...props }) {
+                  code({ className, children, ...props }) {
                     const match = /language-(\w+)/.exec(className || '');
                     const isInline = !match;
-                    
+
                     if (isInline) {
                       return (
                         <code className={className} {...props}>
@@ -121,7 +177,11 @@ export function MessageBubble({ message }: MessageBubbleProps) {
                             }}
                             className="text-white/30 hover:text-white/60 transition-colors"
                           >
-                            {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                            {copied ? (
+                              <Check className="w-3.5 h-3.5" />
+                            ) : (
+                              <Copy className="w-3.5 h-3.5" />
+                            )}
                           </button>
                         </div>
                         <SyntaxHighlighter
@@ -141,30 +201,65 @@ export function MessageBubble({ message }: MessageBubbleProps) {
                     );
                   },
                   p({ children }) {
-                    return <p className="text-sm text-white/80 leading-relaxed mb-2 last:mb-0">{children}</p>;
+                    return (
+                      <p className="text-sm text-white/80 leading-relaxed mb-2 last:mb-0">
+                        {children}
+                      </p>
+                    );
                   },
                   ul({ children }) {
-                    return <ul className="text-sm text-white/80 space-y-1 list-disc pl-4 mb-2">{children}</ul>;
+                    return (
+                      <ul className="text-sm text-white/80 space-y-1 list-disc pl-4 mb-2">
+                        {children}
+                      </ul>
+                    );
                   },
                   ol({ children }) {
-                    return <ol className="text-sm text-white/80 space-y-1 list-decimal pl-4 mb-2">{children}</ol>;
+                    return (
+                      <ol className="text-sm text-white/80 space-y-1 list-decimal pl-4 mb-2">
+                        {children}
+                      </ol>
+                    );
                   },
                   h1({ children }) {
-                    return <h1 className="text-lg font-bold text-white mb-2 mt-4">{children}</h1>;
+                    return (
+                      <h1 className="text-lg font-bold text-white mb-2 mt-4">{children}</h1>
+                    );
                   },
                   h2({ children }) {
-                    return <h2 className="text-base font-bold text-white mb-2 mt-3">{children}</h2>;
+                    return (
+                      <h2 className="text-base font-bold text-white mb-2 mt-3">{children}</h2>
+                    );
                   },
                   h3({ children }) {
-                    return <h3 className="text-sm font-bold text-white mb-1 mt-2">{children}</h3>;
+                    return (
+                      <h3 className="text-sm font-bold text-white mb-1 mt-2">{children}</h3>
+                    );
                   },
                   a({ children, href }) {
-                    return <a href={href} className="text-blue-400 hover:text-blue-300 underline" target="_blank" rel="noreferrer">{children}</a>;
+                    return (
+                      <a
+                        href={href}
+                        className="text-blue-400 hover:text-blue-300 underline"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        {children}
+                      </a>
+                    );
                   },
                   blockquote({ children }) {
-                    return <blockquote className="border-l-2 border-blue-500/30 pl-3 italic text-white/50">{children}</blockquote>;
+                    return (
+                      <blockquote className="border-l-2 border-blue-500/30 pl-3 italic text-white/50">
+                        {children}
+                      </blockquote>
+                    );
                   },
                   img({ src, alt }) {
+                    // rehype-sanitize already dropped non-safe protocols.
+                    // Only render http(s) images (data: would have been stripped).
+                    if (!src || typeof src !== 'string') return null;
+                    if (!/^https?:\/\//.test(src)) return null;
                     return (
                       <div className="my-3 rounded-xl overflow-hidden border border-white/10">
                         <img
@@ -180,9 +275,11 @@ export function MessageBubble({ message }: MessageBubbleProps) {
               >
                 {message.content}
               </ReactMarkdown>
-              {/* Render generated images from metadata */}
-              {(message as any).metadata?.images?.map((img: string, i: number) => (
-                <div key={i} className="mt-3 rounded-xl overflow-hidden border border-white/10 inline-block">
+              {message.metadata?.images?.map((img, i) => (
+                <div
+                  key={i}
+                  className="mt-3 rounded-xl overflow-hidden border border-white/10 inline-block"
+                >
                   <img
                     src={img}
                     alt="Generated image"
@@ -195,10 +292,13 @@ export function MessageBubble({ message }: MessageBubbleProps) {
           )}
         </div>
 
-        {/* Actions */}
         {!isUser && message.content && (
           <div className="flex items-center gap-1 mt-1 px-1">
-            <button onClick={handleCopy} className="p-1 rounded text-white/20 hover:text-white/50 transition-colors" title="Copy">
+            <button
+              onClick={handleCopy}
+              className="p-1 rounded text-white/20 hover:text-white/50 transition-colors"
+              title="Copy"
+            >
               {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
             </button>
             <button
@@ -210,7 +310,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
                   ? 'text-emerald-400'
                   : feedbackGiven !== null
                     ? 'text-white/10 cursor-not-allowed'
-                    : 'text-white/20 hover:text-white/50'
+                    : 'text-white/20 hover:text-white/50',
               )}
               title="Good response"
             >
@@ -225,7 +325,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
                   ? 'text-red-400'
                   : feedbackGiven !== null
                     ? 'text-white/10 cursor-not-allowed'
-                    : 'text-white/20 hover:text-white/50'
+                    : 'text-white/20 hover:text-white/50',
               )}
               title="Bad response"
             >

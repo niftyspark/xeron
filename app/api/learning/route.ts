@@ -1,60 +1,41 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyToken, getTokenFromHeaders } from '@/lib/auth';
+import { requireAuth, withErrors } from '@/lib/api-guard';
 import { db, schema } from '@/lib/db';
 import { eq, desc } from 'drizzle-orm';
-import { ensureTables } from '@/lib/ensure-tables';
+import { badRequest } from '@/lib/errors';
+import { LearningCreateSchema } from '@/lib/validators';
 
-export async function GET(req: NextRequest) {
-  try {
-    const token = getTokenFromHeaders(req.headers);
-    if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    const payload = await verifyToken(token);
-    if (!payload) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+export const GET = withErrors(async (req: NextRequest) => {
+  const auth = await requireAuth(req);
+  if (auth instanceof NextResponse) return auth;
 
-    await ensureTables();
-    const logs = await db.query.learningLogs.findMany({
-      where: eq(schema.learningLogs.userId, payload.userId),
-      orderBy: [desc(schema.learningLogs.createdAt)],
-    });
+  const logs = await db.query.learningLogs.findMany({
+    where: eq(schema.learningLogs.userId, auth.userId),
+    orderBy: [desc(schema.learningLogs.createdAt)],
+  });
+  return NextResponse.json(logs);
+});
 
-    return NextResponse.json(logs);
-  } catch (err) {
-    console.error('Learning GET error:', err);
-    return NextResponse.json({ error: 'Server error' }, { status: 500 });
-  }
-}
+export const POST = withErrors(async (req: NextRequest) => {
+  const auth = await requireAuth(req);
+  if (auth instanceof NextResponse) return auth;
 
-export async function POST(req: NextRequest) {
-  try {
-    const token = getTokenFromHeaders(req.headers);
-    if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    const payload = await verifyToken(token);
-    if (!payload) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+  const body = await req.json().catch(() => null);
+  const parsed = LearningCreateSchema.safeParse(body);
+  if (!parsed.success) throw badRequest('Invalid learning payload.');
 
-    await ensureTables();
-    const body = await req.json();
-    const { trigger, lesson, appliedTo, confidence } = body;
+  const [entry] = await db
+    .insert(schema.learningLogs)
+    .values({
+      userId: auth.userId,
+      trigger: parsed.data.trigger,
+      lesson: parsed.data.lesson,
+      appliedTo: parsed.data.appliedTo,
+      confidence: parsed.data.confidence,
+    })
+    .returning();
 
-    if (!lesson) {
-      return NextResponse.json({ error: 'lesson is required' }, { status: 400 });
-    }
-
-    const [entry] = await db
-      .insert(schema.learningLogs)
-      .values({
-        userId: payload.userId,
-        trigger: trigger || 'manual',
-        lesson,
-        appliedTo: appliedTo || null,
-        confidence: confidence ?? 0.5,
-      })
-      .returning();
-
-    return NextResponse.json(entry);
-  } catch (err) {
-    console.error('Learning POST error:', err);
-    return NextResponse.json({ error: 'Server error' }, { status: 500 });
-  }
-}
+  return NextResponse.json(entry);
+});

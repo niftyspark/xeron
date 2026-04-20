@@ -1,14 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ALL_MODELS } from '@/lib/constants';
+import { requireAuth, withErrors } from '@/lib/api-guard';
 
-export async function GET(req: NextRequest) {
+export const GET = withErrors(async (req: NextRequest) => {
+  const auth = await requireAuth(req);
+  if (auth instanceof NextResponse) return auth;
+
   const { searchParams } = new URL(req.url);
   const provider = searchParams.get('provider');
   const category = searchParams.get('category');
   const search = searchParams.get('search')?.toLowerCase();
 
   let filtered = ALL_MODELS;
-
   if (provider && provider !== 'all') {
     filtered = filtered.filter((m) => m.provider === provider);
   }
@@ -21,7 +24,7 @@ export async function GET(req: NextRequest) {
         m.displayName.toLowerCase().includes(search) ||
         m.modelId.toLowerCase().includes(search) ||
         m.provider.toLowerCase().includes(search) ||
-        m.tags.some((t) => t.toLowerCase().includes(search))
+        m.tags.some((t) => t.toLowerCase().includes(search)),
     );
   }
 
@@ -30,4 +33,4 @@ export async function GET(req: NextRequest) {
     total: ALL_MODELS.length,
     filtered: filtered.length,
   });
-}
+});

@@ -1,87 +1,83 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAuth } from '@/lib/api-guard';
+import { requireAuth, withErrors } from '@/lib/api-guard';
+import { badRequest, serviceUnavailable, HttpError } from '@/lib/errors';
+import { AnalyzeImageSchema } from '@/lib/validators';
 
 const MODEL = '@cf/meta/llama-3.2-11b-vision-instruct';
 
-export async function POST(req: NextRequest) {
+export const POST = withErrors(async (req: NextRequest) => {
+  const auth = await requireAuth(req);
+  if (auth instanceof NextResponse) return auth;
+
+  const body = await req.json().catch(() => null);
+  const parsed = AnalyzeImageSchema.safeParse(body);
+  if (!parsed.success) throw badRequest('Invalid image payload.');
+  const { image, prompt } = parsed.data;
+
+  const cfAccountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+  const cfApiToken = process.env.CLOUDFLARE_AI_TOKEN;
+  if (!cfAccountId || !cfApiToken) throw serviceUnavailable('Image analysis not configured.');
+
+  const cfUrl = `https://api.cloudflare.com/client/v4/accounts/${cfAccountId}/ai/run/${MODEL}`;
+  const cfHeaders = {
+    Authorization: `Bearer ${cfApiToken}`,
+    'Content-Type': 'application/json',
+  };
+
+  // License agreement step. Failure is logged but non-fatal — Cloudflare returns
+  // success on already-agreed accounts. Only the analyse step determines the
+  // response.
   try {
-    const auth = await requireAuth(req.headers);
-    if (auth instanceof NextResponse) return auth;
-
-    const { image, prompt } = await req.json();
-    if (!image) {
-      return NextResponse.json({ error: 'Image is required' }, { status: 400 });
-    }
-
-    const cfAccountId = process.env.CLOUDFLARE_ACCOUNT_ID;
-    const cfApiToken = process.env.CLOUDFLARE_AI_TOKEN;
-
-    if (!cfAccountId || !cfApiToken) {
-      return NextResponse.json({ error: 'Image analysis not configured' }, { status: 500 });
-    }
-
-    const cfUrl = `https://api.cloudflare.com/client/v4/accounts/${cfAccountId}/ai/run/${MODEL}`;
-    const cfHeaders = {
-      'Authorization': `Bearer ${cfApiToken}`,
-      'Content-Type': 'application/json',
-    };
-
-    // Step 1: Agree to Meta license (idempotent — safe to call every time)
     await fetch(cfUrl, {
       method: 'POST',
       headers: cfHeaders,
       body: JSON.stringify({ prompt: 'agree' }),
-    }).catch(() => {});
-
-    // Step 2: Analyze the image
-    const userPrompt = prompt || 'Describe this image in detail. What do you see? Be specific about objects, colors, text, and context.';
-
-    // Ensure image is a proper data URI
-    let imageDataUri = image;
-    if (!image.startsWith('data:')) {
-      // Raw base64 — wrap it
-      imageDataUri = `data:image/png;base64,${image}`;
-    }
-
-    const cfRes = await fetch(cfUrl, {
-      method: 'POST',
-      headers: cfHeaders,
-      body: JSON.stringify({
-        messages: [
-          {
-            role: 'user',
-            content: [
-              { type: 'text', text: userPrompt },
-              { type: 'image_url', image_url: { url: imageDataUri } },
-            ],
-          },
-        ],
-        max_tokens: 1024,
-      }),
+      signal: req.signal,
     });
-
-    if (!cfRes.ok) {
-      const errText = await cfRes.text();
-      console.error('CF Vision error:', cfRes.status, errText);
-
-      // Fallback: use the main chat AI to describe what the user asked
-      // (won't see the image but at least won't error out)
-      return NextResponse.json({
-        analysis: `I received your image but the vision model returned an error (${cfRes.status}). Please try again or describe the image to me in text.`,
-      });
-    }
-
-    const data = await cfRes.json();
-    const analysis = data?.result?.response || data?.response || 'Could not analyze the image. Please try again.';
-
-    return NextResponse.json({ analysis });
-  } catch (err: any) {
-    console.error('Image analysis error:', err?.message || err);
-    return NextResponse.json(
-      { error: err?.message || 'Image analysis failed' },
-      { status: 500 }
-    );
+  } catch (err) {
+    console.warn('[analyze-image] license-agree step failed', err);
   }
-}
+
+  const userPrompt =
+    prompt ||
+    'Describe this image in detail. What do you see? Be specific about objects, colors, text, and context.';
+
+  const imageDataUri = image.startsWith('data:')
+    ? image
+    : `data:image/png;base64,${image}`;
+
+  const cfRes = await fetch(cfUrl, {
+    method: 'POST',
+    headers: cfHeaders,
+    body: JSON.stringify({
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: userPrompt },
+            { type: 'image_url', image_url: { url: imageDataUri } },
+          ],
+        },
+      ],
+      max_tokens: 1024,
+    }),
+    signal: req.signal,
+  });
+
+  if (!cfRes.ok) {
+    const errText = (await cfRes.text()).slice(0, 500);
+    console.error('[analyze-image] CF vision error', cfRes.status, errText);
+    throw new HttpError(502, 'Image analysis failed — please retry.');
+  }
+
+  const data = (await cfRes.json()) as {
+    result?: { response?: string };
+    response?: string;
+  };
+  const analysis = data.result?.response ?? data.response ?? null;
+  if (!analysis) throw new HttpError(502, 'Empty analysis from provider.');
+
+  return NextResponse.json({ analysis });
+});

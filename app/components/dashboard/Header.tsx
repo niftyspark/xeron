@@ -1,12 +1,13 @@
 'use client';
 
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useUI } from '@/app/store/useUI';
 import { useUser } from '@/app/store/useUser';
 import { Menu, Search, Command, LogOut } from 'lucide-react';
 import { Button } from '@/app/components/ui/button';
 import { ThemeToggle } from './ThemeToggle';
 import { UserProfile } from './UserProfile';
+import { authFetch } from '@/lib/client-auth';
 
 const pageTitles: Record<string, string> = {
   '/dashboard': 'Chat',
@@ -23,8 +24,28 @@ const pageTitles: Record<string, string> = {
 
 export function Header() {
   const pathname = usePathname();
+  const router = useRouter();
   const { toggleSidebar, toggleCommandPalette } = useUI();
   const title = pageTitles[pathname] || 'Dashboard';
+
+  const handleLogout = async () => {
+    try {
+      await authFetch('/api/auth/logout', { method: 'POST' });
+    } catch {
+      // Even if the request fails, we still clear local state below — the
+      // cookie will either be unset by the server or will simply expire.
+    }
+    useUser.getState().clear();
+    // Wipe client caches populated during the session.
+    try {
+      localStorage.removeItem('xeron-chat');
+      localStorage.removeItem('xeron-code-sessions');
+      localStorage.removeItem('xeron-user');
+    } catch {
+      /* localStorage unavailable — ignore */
+    }
+    router.push('/');
+  };
 
   return (
     <header className="h-16 border-b border-white/5 flex items-center justify-between px-4 bg-[#0a0a0f]/80 backdrop-blur-xl">
@@ -39,7 +60,6 @@ export function Header() {
       </div>
 
       <div className="flex items-center gap-3">
-        {/* Command palette trigger */}
         <Button
           variant="ghost"
           size="sm"
@@ -53,21 +73,11 @@ export function Header() {
           </kbd>
         </Button>
 
-        {/* Theme Toggle */}
         <ThemeToggle />
-
-        {/* User Profile */}
         <UserProfile />
 
-        {/* Logout */}
         <button
-          onClick={() => {
-            useUser.getState().logout();
-            localStorage.removeItem('xeron-user');
-            localStorage.removeItem('xeron-chat');
-            localStorage.removeItem('xeron-code-sessions');
-            window.location.href = '/dashboard';
-          }}
+          onClick={handleLogout}
           className="p-2 rounded-lg hover:bg-red-500/10 text-white/30 hover:text-red-400 transition-colors"
           title="Sign out"
         >

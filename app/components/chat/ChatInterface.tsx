@@ -1,32 +1,40 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { useChat, ChatMessage, Conversation } from '@/app/store/useChat';
+import { useChat, ChatMessage } from '@/app/store/useChat';
 import { useUser } from '@/app/store/useUser';
 import { useStreaming } from '@/app/hooks/useStreaming';
-
 import { useUI } from '@/app/store/useUI';
 import { MessageBubble } from './MessageBubble';
 import { ChatInput, type Attachment } from './ChatInput';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Sparkles, Loader2, ImageIcon } from 'lucide-react';
+import { Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
+import { authFetch } from '@/lib/client-auth';
 
 export function ChatInterface() {
   const {
-    conversations, activeConversationId, addMessage, addConversation,
-    setActiveConversation, currentModel,
-    createConversation, saveMessage, loadConversations, loadMessages,
+    conversations,
+    activeConversationId,
+    addMessage,
+    addConversation,
+    currentModel,
+    createConversation,
+    saveMessage,
+    loadConversations,
+    loadMessages,
     conversationsLoaded,
+    updateConversationMessages,
+    updateMessage,
   } = useChat();
-  const { token, isAuthenticated } = useUser();
+  const { isAuthenticated } = useUser();
   const { decrementMessages, checkDailyReset } = useUI();
   const { isStreaming, startStream, stopStream } = useStreaming();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const loadedConvRef = useRef<Set<string>>(new Set());
 
-  const activeConv = conversations.find(c => c.id === activeConversationId);
-  const messages = activeConv?.messages || [];
+  const activeConv = conversations.find((c) => c.id === activeConversationId);
+  const messages = activeConv?.messages ?? [];
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -36,221 +44,297 @@ export function ChatInterface() {
     scrollToBottom();
   }, [messages, scrollToBottom]);
 
-  // Check daily message reset
   useEffect(() => {
     checkDailyReset();
   }, [checkDailyReset]);
 
-  // Load conversations from DB on mount when authenticated
+  // Load conversation list from server on mount.
   useEffect(() => {
     if (isAuthenticated && !conversationsLoaded) {
       loadConversations().catch(() => {
-        // DB might not be available, that's ok - chat still works locally
+        /* stay usable offline */
       });
     }
   }, [isAuthenticated, conversationsLoaded, loadConversations]);
 
-  // Load messages when switching to a conversation
+  // Load messages when switching conversation — messages are never persisted
+  // client-side (per audit #65), so they must be fetched from /api/messages.
   useEffect(() => {
-    if (activeConversationId && !loadedConvRef.current.has(activeConversationId)) {
+    if (
+      activeConversationId &&
+      !loadedConvRef.current.has(activeConversationId)
+    ) {
       loadedConvRef.current.add(activeConversationId);
       loadMessages(activeConversationId);
     }
   }, [activeConversationId, loadMessages]);
 
-  const handleSend = async (content: string, attachments?: Attachment[]) => {
-    if ((!content.trim() && (!attachments || attachments.length === 0)) || isStreaming) return;
+  const handleSend = useCallback(
+    async (content: string, attachments?: Attachment[]) => {
+      if (
+        (!content.trim() && (!attachments || attachments.length === 0)) ||
+        isStreaming
+      )
+        return;
 
-    const imageAttachments = attachments?.filter(a => a.type === 'image') || [];
-    const textAttachments = attachments?.filter(a => a.type === 'text') || [];
-    const hasImages = imageAttachments.length > 0;
+      const imageAttachments = attachments?.filter((a) => a.type === 'image') ?? [];
+      const textAttachments = attachments?.filter((a) => a.type === 'text') ?? [];
+      const hasImages = imageAttachments.length > 0;
 
-    let convId = activeConversationId;
+      let convId = activeConversationId;
 
-    // Create new conversation if none active
-    if (!convId) {
-      const title = content.slice(0, 50) || (hasImages ? 'Image analysis' : 'New chat');
-      const newConv = await createConversation(title, currentModel);
-      if (newConv) {
-        convId = newConv.id;
-        loadedConvRef.current.add(convId);
-      } else {
-        convId = crypto.randomUUID();
-        addConversation({
-          id: convId, title, model: currentModel, messages: [],
-          isPinned: false, createdAt: new Date(), updatedAt: new Date(),
-        });
-        loadedConvRef.current.add(convId);
-      }
-    }
-
-    decrementMessages();
-
-    // Build user message content
-    let userContent = content;
-    if (textAttachments.length > 0) {
-      userContent += '\n\n' + textAttachments.map(a => `[File: ${a.name}]\n${a.content}`).join('\n\n');
-    }
-    if (hasImages) {
-      userContent = (userContent || 'Analyze this image') + `\n\n📎 ${imageAttachments.length} image${imageAttachments.length > 1 ? 's' : ''} attached`;
-    }
-
-    // Add user message with image previews
-    const userMsg: ChatMessage = {
-      id: crypto.randomUUID(),
-      role: 'user',
-      content: userContent,
-      createdAt: new Date(),
-      // Store image data URLs in metadata for rendering
-      ...(hasImages && { metadata: { images: imageAttachments.map(a => a.content) } }),
-    };
-    addMessage(convId, userMsg);
-    saveMessage(convId, 'user', userContent);
-
-    if (hasImages) {
-      // IMAGE ANALYSIS FLOW — use Cloudflare Vision API
-      const assistantMsg: ChatMessage = {
-        id: crypto.randomUUID(), role: 'assistant',
-        content: '🔍 Analyzing image...', createdAt: new Date(), isStreaming: true,
-      };
-      addMessage(convId, assistantMsg);
-
-      try {
-        const { getAuthHeaders } = await import('@/lib/client-auth');
-        const analysisPrompt = content || 'Describe this image in detail. What do you see?';
-
-        // Analyze each image
-        const analyses: string[] = [];
-        for (const img of imageAttachments) {
-          const res = await fetch('/api/ai/analyze-image', {
-            method: 'POST',
-            headers: getAuthHeaders(),
-            body: JSON.stringify({ image: img.content, prompt: analysisPrompt }),
+      if (!convId) {
+        const title =
+          content.slice(0, 50) || (hasImages ? 'Image analysis' : 'New chat');
+        const newConv = await createConversation(title, currentModel);
+        if (newConv) {
+          convId = newConv.id;
+          loadedConvRef.current.add(convId);
+        } else {
+          // Offline fallback — server reachable but DB insert failed.
+          convId = crypto.randomUUID();
+          addConversation({
+            id: convId,
+            title,
+            model: currentModel,
+            messages: [],
+            isPinned: false,
+            createdAt: new Date(),
+            updatedAt: new Date(),
           });
-          if (res.ok) {
-            const data = await res.json();
-            analyses.push(data.analysis);
-          } else {
-            const err = await res.json().catch(() => ({}));
-            analyses.push(`Failed to analyze: ${err.error || 'Unknown error'}`);
-          }
+          loadedConvRef.current.add(convId);
         }
-
-        const result = analyses.join('\n\n---\n\n');
-        useChat.getState().updateMessage(convId, assistantMsg.id, result);
-        saveMessage(convId, 'assistant', result);
-      } catch (err: any) {
-        useChat.getState().updateMessage(convId, assistantMsg.id, `Image analysis failed: ${err.message}`);
-        toast.error('Image analysis failed');
       }
-    } else {
-      // NORMAL CHAT FLOW — stream AI response
-      const assistantMsg: ChatMessage = {
-        id: crypto.randomUUID(), role: 'assistant',
-        content: '', createdAt: new Date(), isStreaming: true,
+
+      // Build user content + metadata.
+      let userContent = content;
+      if (textAttachments.length > 0) {
+        userContent +=
+          '\n\n' +
+          textAttachments
+            .map((a) => `[File: ${a.name}]\n${a.content}`)
+            .join('\n\n');
+      }
+      if (hasImages) {
+        userContent =
+          (userContent || 'Analyze this image') +
+          `\n\nAttached: ${imageAttachments.length} image(s)`;
+      }
+
+      const userMsg: ChatMessage = {
+        id: crypto.randomUUID(),
+        role: 'user',
+        content: userContent,
+        createdAt: new Date(),
+        ...(hasImages && {
+          metadata: { images: imageAttachments.map((a) => a.content) },
+        }),
       };
-      addMessage(convId, assistantMsg);
+      addMessage(convId, userMsg);
+      saveMessage(convId, 'user', userContent);
 
-      const conv = useChat.getState().conversations.find(c => c.id === convId);
-      const allMessages = conv?.messages.map(m => ({
-        role: m.role, content: m.content,
-      })).filter(m => m.content) || [];
+      if (hasImages) {
+        // IMAGE ANALYSIS FLOW — analyse in parallel (audit #45).
+        const assistantMsg: ChatMessage = {
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          content: 'Analysing image...',
+          createdAt: new Date(),
+          isStreaming: true,
+        };
+        addMessage(convId, assistantMsg);
 
-      await startStream(convId, assistantMsg.id, allMessages, currentModel);
+        try {
+          const analyses = await Promise.all(
+            imageAttachments.map(async (img) => {
+              const res = await authFetch('/api/ai/analyze-image', {
+                method: 'POST',
+                json: {
+                  image: img.content,
+                  prompt: content || 'Describe this image in detail.',
+                },
+              });
+              if (res.ok) {
+                const data = (await res.json()) as { analysis: string };
+                return data.analysis;
+              }
+              const err = (await res.json().catch(() => ({}))) as {
+                error?: string;
+              };
+              return `Failed to analyze: ${err.error || `status ${res.status}`}`;
+            }),
+          );
 
-      const updatedConv = useChat.getState().conversations.find(c => c.id === convId);
-      const finalMsg = updatedConv?.messages.find(m => m.id === assistantMsg.id);
-      if (finalMsg?.content) saveMessage(convId, 'assistant', finalMsg.content);
-    }
+          const result = analyses.join('\n\n---\n\n');
+          updateMessage(convId, assistantMsg.id, result);
+          saveMessage(convId, 'assistant', result);
+        } catch (err) {
+          const msg =
+            err instanceof Error ? err.message : 'Image analysis failed.';
+          updateMessage(convId, assistantMsg.id, `Image analysis failed: ${msg}`);
+          toast.error('Image analysis failed');
+        }
+      } else {
+        // CHAT FLOW — stream the assistant response.
+        const assistantMsg: ChatMessage = {
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          content: '',
+          createdAt: new Date(),
+          isStreaming: true,
+        };
 
-    // Fire-and-forget: extract memories
-    const latestConv = useChat.getState().conversations.find(c => c.id === convId);
-    const recentMessages = (latestConv?.messages || [])
-      .filter(m => m.content).slice(-4)
-      .map(m => ({ role: m.role, content: m.content }));
-    if (recentMessages.length > 0 && token) {
-      fetch('/api/ai/extract-memories', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ conversationId: convId, messages: recentMessages }),
-      }).catch(() => {});
-    }
-  };
+        // Build the message history locally INSTEAD OF re-reading the store
+        // after addMessage (audit #44 race).
+        const existingMessages = (
+          useChat.getState().conversations.find((c) => c.id === convId)
+            ?.messages ?? []
+        ).map((m) => ({ role: m.role, content: m.content }));
+        const wireMessages = [
+          ...existingMessages,
+          { role: userMsg.role, content: userMsg.content },
+        ].filter((m) => m.content);
+
+        addMessage(convId, assistantMsg);
+
+        await startStream(convId, assistantMsg.id, wireMessages, currentModel);
+
+        const updatedConv = useChat
+          .getState()
+          .conversations.find((c) => c.id === convId);
+        const finalMsg = updatedConv?.messages.find((m) => m.id === assistantMsg.id);
+        if (finalMsg?.content) saveMessage(convId, 'assistant', finalMsg.content);
+      }
+
+      // Decrement local counter after a successful round-trip (audit #79).
+      decrementMessages();
+
+      // Fire-and-forget memory extraction.
+      const latestConv = useChat
+        .getState()
+        .conversations.find((c) => c.id === convId);
+      const recentMessages = (latestConv?.messages ?? [])
+        .filter((m) => m.content)
+        .slice(-4)
+        .map((m) => ({ role: m.role, content: m.content }));
+      if (recentMessages.length > 0) {
+        authFetch('/api/ai/extract-memories', {
+          method: 'POST',
+          json: { conversationId: convId, messages: recentMessages },
+        }).catch(() => {
+          /* best-effort */
+        });
+      }
+    },
+    [
+      activeConversationId,
+      addConversation,
+      addMessage,
+      createConversation,
+      currentModel,
+      decrementMessages,
+      isStreaming,
+      saveMessage,
+      startStream,
+      updateMessage,
+    ],
+  );
 
   const [generatingImage, setGeneratingImage] = useState(false);
 
-  const handleImageGenerate = async (prompt: string) => {
-    if (generatingImage) return;
+  const handleImageGenerate = useCallback(
+    async (prompt: string) => {
+      if (generatingImage) return;
 
-    let convId = activeConversationId;
-    if (!convId) {
-      const title = `Image: ${prompt.slice(0, 40)}...`;
-      const newConv = await createConversation(title, currentModel);
-      if (newConv) {
-        convId = newConv.id;
-        loadedConvRef.current.add(convId);
-      } else {
-        convId = crypto.randomUUID();
-        addConversation({
-          id: convId, title, model: currentModel, messages: [],
-          isPinned: false, createdAt: new Date(), updatedAt: new Date(),
+      let convId = activeConversationId;
+      if (!convId) {
+        const title = `Image: ${prompt.slice(0, 40)}...`;
+        const newConv = await createConversation(title, currentModel);
+        if (newConv) {
+          convId = newConv.id;
+          loadedConvRef.current.add(convId);
+        } else {
+          convId = crypto.randomUUID();
+          addConversation({
+            id: convId,
+            title,
+            model: currentModel,
+            messages: [],
+            isPinned: false,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          });
+          loadedConvRef.current.add(convId);
+        }
+      }
+
+      const userMsg: ChatMessage = {
+        id: crypto.randomUUID(),
+        role: 'user',
+        content: `Generate image: ${prompt}`,
+        createdAt: new Date(),
+      };
+      addMessage(convId, userMsg);
+
+      const assistantMsg: ChatMessage = {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: 'Generating image...',
+        createdAt: new Date(),
+        isStreaming: true,
+      };
+      addMessage(convId, assistantMsg);
+
+      setGeneratingImage(true);
+      try {
+        const res = await authFetch('/api/ai/image', {
+          method: 'POST',
+          json: { prompt, model: 'flux-schnell' },
         });
-        loadedConvRef.current.add(convId);
+
+        if (!res.ok) {
+          const err = (await res.json().catch(() => ({}))) as { error?: string };
+          throw new Error(err.error ?? 'Image generation failed');
+        }
+
+        const data = (await res.json()) as { image: string; model: string };
+
+        const conv = useChat.getState().conversations.find((c) => c.id === convId);
+        if (conv) {
+          const updated = conv.messages.map((m) =>
+            m.id === assistantMsg.id
+              ? {
+                  ...m,
+                  content: `"${prompt}"\nGenerated with ${data.model}`,
+                  isStreaming: false,
+                  metadata: { images: [data.image] },
+                }
+              : m,
+          );
+          updateConversationMessages(convId, updated);
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Image generation failed';
+        updateMessage(convId, assistantMsg.id, `Failed to generate image: ${msg}`);
+        toast.error(msg);
+      } finally {
+        setGeneratingImage(false);
       }
-    }
-
-    // Add user message
-    const userMsg: ChatMessage = {
-      id: crypto.randomUUID(), role: 'user',
-      content: `🎨 Generate image: ${prompt}`, createdAt: new Date(),
-    };
-    addMessage(convId, userMsg);
-
-    // Add placeholder assistant message
-    const assistantMsg: ChatMessage = {
-      id: crypto.randomUUID(), role: 'assistant',
-      content: '🖼️ Generating image...', createdAt: new Date(), isStreaming: true,
-    };
-    addMessage(convId, assistantMsg);
-
-    setGeneratingImage(true);
-
-    try {
-      const { getAuthHeaders } = await import('@/lib/client-auth');
-      const res = await fetch('/api/ai/image', {
-        method: 'POST',
-        headers: getAuthHeaders(),
-        body: JSON.stringify({ prompt, model: 'flux-schnell' }),
-      });
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || 'Image generation failed');
-      }
-
-      const data = await res.json();
-
-      // Store image in metadata, text in content
-      const conv = useChat.getState().conversations.find(c => c.id === convId);
-      if (conv) {
-        const updatedMessages = conv.messages.map(m =>
-          m.id === assistantMsg.id
-            ? { ...m, content: `*"${prompt}"*\nGenerated with ${data.model}`, isStreaming: false, metadata: { images: [data.image] } }
-            : m
-        );
-        useChat.getState().updateConversationMessages(convId, updatedMessages);
-      }
-    } catch (err: any) {
-      useChat.getState().updateMessage(convId, assistantMsg.id, `Failed to generate image: ${err.message}`);
-      toast.error(err.message || 'Image generation failed');
-    } finally {
-      setGeneratingImage(false);
-    }
-  };
+    },
+    [
+      activeConversationId,
+      addConversation,
+      addMessage,
+      createConversation,
+      currentModel,
+      generatingImage,
+      updateConversationMessages,
+      updateMessage,
+    ],
+  );
 
   return (
     <div className="flex flex-col h-full">
-      {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-6">
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center">
@@ -264,7 +348,8 @@ export function ChatInterface() {
               </div>
               <h2 className="text-2xl font-bold text-white mb-2">XERON</h2>
               <p className="text-white/40 max-w-md">
-                Your autonomous AI agent. Ask anything, execute tasks, or let me learn about your preferences.
+                Your autonomous AI agent. Ask anything, execute tasks, or let me
+                learn about your preferences.
               </p>
             </motion.div>
 
@@ -293,24 +378,24 @@ export function ChatInterface() {
               ))}
             </AnimatePresence>
 
-            {/* Typing indicator */}
-            {isStreaming && messages[messages.length - 1]?.content === '' && (
-              <div className="flex items-center gap-2 px-4 py-3">
-                <div className="flex gap-1">
-                  <span className="w-2 h-2 rounded-full bg-blue-400 typing-dot" />
-                  <span className="w-2 h-2 rounded-full bg-blue-400 typing-dot" />
-                  <span className="w-2 h-2 rounded-full bg-blue-400 typing-dot" />
+            {isStreaming &&
+              messages[messages.length - 1]?.isStreaming &&
+              messages[messages.length - 1]?.content === '' && (
+                <div className="flex items-center gap-2 px-4 py-3">
+                  <div className="flex gap-1">
+                    <span className="w-2 h-2 rounded-full bg-blue-400 typing-dot" />
+                    <span className="w-2 h-2 rounded-full bg-blue-400 typing-dot" />
+                    <span className="w-2 h-2 rounded-full bg-blue-400 typing-dot" />
+                  </div>
+                  <span className="text-xs text-white/30">XERON is thinking...</span>
                 </div>
-                <span className="text-xs text-white/30">XERON is thinking...</span>
-              </div>
-            )}
+              )}
 
             <div ref={messagesEndRef} />
           </div>
         )}
       </div>
 
-      {/* Input */}
       <ChatInput
         onSend={handleSend}
         onImageGenerate={handleImageGenerate}

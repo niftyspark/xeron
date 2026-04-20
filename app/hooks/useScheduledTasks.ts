@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { getClientToken } from '@/lib/client-auth';
+import { authFetch } from '@/lib/client-auth';
 import { toast } from 'sonner';
 
 interface ScheduledTask {
@@ -23,15 +23,11 @@ export function useScheduledTasks() {
   const [loading, setLoading] = useState(false);
 
   const fetchTasks = useCallback(async () => {
-    const token = getClientToken();
-    if (!token) return;
     setLoading(true);
     try {
-      const res = await fetch('/api/tasks', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await authFetch('/api/tasks');
       if (res.ok) {
-        const data = await res.json();
+        const data = (await res.json()) as ScheduledTask[];
         setTasks(Array.isArray(data) ? data : []);
       }
     } catch (err) {
@@ -41,67 +37,67 @@ export function useScheduledTasks() {
     }
   }, []);
 
-  const createTask = useCallback(async (task: any) => {
-    const token = getClientToken();
-    if (!token) {
-      toast.error('Session expired. Please refresh the page.');
-      return null;
-    }
+  const createTask = useCallback(async (task: Partial<ScheduledTask> & { name: string; prompt: string; cronExpression: string }) => {
     try {
-      const res = await fetch('/api/tasks', {
+      const res = await authFetch('/api/tasks', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(task),
+        json: task,
       });
+      if (res.status === 401) {
+        toast.error('Session expired. Please sign in again.');
+        return null;
+      }
       if (res.ok) {
-        const data = await res.json();
-        setTasks(prev => [data, ...prev]);
+        const data = (await res.json()) as ScheduledTask;
+        setTasks((prev) => [data, ...prev]);
         toast.success('Task created');
         return data;
       }
-      const err = await res.json().catch(() => ({ error: 'Failed' }));
+      const err = (await res.json().catch(() => ({}))) as { error?: string };
       toast.error(err.error || 'Failed to create task');
       return null;
-    } catch (err) {
+    } catch {
       toast.error('Failed to create task');
       return null;
     }
   }, []);
 
   const toggleTask = useCallback(async (id: string) => {
-    const token = getClientToken();
-    if (!token) return;
     try {
-      const res = await fetch('/api/tasks', {
+      const res = await authFetch('/api/tasks', {
         method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ id, toggle: true }),
+        json: { id, toggle: true },
       });
       if (res.ok) {
-        setTasks(prev => prev.map(t => t.id === id ? { ...t, isActive: !t.isActive } : t));
+        setTasks((prev) =>
+          prev.map((t) => (t.id === id ? { ...t, isActive: !t.isActive } : t)),
+        );
+      } else if (res.status === 404) {
+        // Remove from UI — task no longer exists server-side.
+        setTasks((prev) => prev.filter((t) => t.id !== id));
+        toast.error('Task no longer exists.');
+      } else {
+        toast.error('Failed to update task.');
       }
-    } catch {}
+    } catch {
+      toast.error('Failed to update task.');
+    }
   }, []);
 
   const deleteTask = useCallback(async (id: string) => {
-    const token = getClientToken();
-    if (!token) return;
     try {
-      const res = await fetch(`/api/tasks?id=${id}`, {
+      const res = await authFetch(`/api/tasks?id=${encodeURIComponent(id)}`, {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
       });
-      if (res.ok) {
-        setTasks(prev => prev.filter(t => t.id !== id));
+      if (res.ok || res.status === 404) {
+        setTasks((prev) => prev.filter((t) => t.id !== id));
         toast.success('Task deleted');
+      } else {
+        toast.error('Failed to delete task.');
       }
-    } catch {}
+    } catch {
+      toast.error('Failed to delete task.');
+    }
   }, []);
 
   return { tasks, loading, fetchTasks, createTask, toggleTask, deleteTask };

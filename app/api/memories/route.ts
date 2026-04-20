@@ -1,79 +1,116 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAuth } from '@/lib/api-guard';
+import {
+  requireAuth,
+  assertMemoryOwnership,
+  withErrors,
+} from '@/lib/api-guard';
 import { db, schema } from '@/lib/db';
 import { eq, desc, and } from 'drizzle-orm';
-import { ensureTables } from '@/lib/ensure-tables';
+import { badRequest } from '@/lib/errors';
+import {
+  MemoryCreateSchema,
+  MemoryDeleteBodySchema,
+  MemoryListQuerySchema,
+} from '@/lib/validators';
 
-export async function GET(req: NextRequest) {
-  try {
-    const auth = await requireAuth(req.headers);
-    if (auth instanceof NextResponse) return auth;
+/**
+ * GET /api/memories?category=<optional>
+ * Returns ACTIVE memories for the caller only.
+ */
+export const GET = withErrors(async (req: NextRequest) => {
+  const auth = await requireAuth(req);
+  if (auth instanceof NextResponse) return auth;
 
-    await ensureTables();
-    const category = new URL(req.url).searchParams.get('category');
+  const parsed = MemoryListQuerySchema.safeParse({
+    category: new URL(req.url).searchParams.get('category') || undefined,
+  });
+  if (!parsed.success) throw badRequest('Invalid category filter.');
 
-    const conditions: any[] = [eq(schema.memories.userId, auth.userId), eq(schema.memories.isActive, true)];
-    if (category) conditions.push(eq(schema.memories.category, category));
-
-    const memories = await db.query.memories.findMany({
-      where: and(...conditions),
-      orderBy: [desc(schema.memories.importance), desc(schema.memories.createdAt)],
-    });
-    return NextResponse.json(memories);
-  } catch (err: any) {
-    console.error('GET memories:', err?.message);
-    return NextResponse.json({ error: 'Failed to load memories' }, { status: 500 });
+  const conditions = [
+    eq(schema.memories.userId, auth.userId),
+    eq(schema.memories.isActive, true),
+  ];
+  if (parsed.data.category) {
+    conditions.push(eq(schema.memories.category, parsed.data.category));
   }
-}
 
-export async function POST(req: NextRequest) {
-  try {
-    const auth = await requireAuth(req.headers);
-    if (auth instanceof NextResponse) return auth;
+  const memories = await db.query.memories.findMany({
+    where: and(...conditions),
+    orderBy: [desc(schema.memories.importance), desc(schema.memories.createdAt)],
+  });
+  return NextResponse.json(memories);
+});
 
-    await ensureTables();
-    const { category, content, importance } = await req.json();
-    if (!content) return NextResponse.json({ error: 'Content is required' }, { status: 400 });
+/**
+ * POST /api/memories
+ * Creates a memory owned by the caller. Strictly validates the body to
+ * prevent user-supplied userId/isActive/createdAt field smuggling.
+ */
+export const POST = withErrors(async (req: NextRequest) => {
+  const auth = await requireAuth(req);
+  if (auth instanceof NextResponse) return auth;
 
-    const [memory] = await db.insert(schema.memories).values({
+  const body = await req.json().catch(() => null);
+  const parsed = MemoryCreateSchema.safeParse(body);
+  if (!parsed.success) throw badRequest('Invalid memory payload.');
+
+  const [memory] = await db
+    .insert(schema.memories)
+    .values({
       userId: auth.userId,
-      category: category || 'fact',
-      content,
-      importance: importance || 0.5,
-    }).returning();
+      category: parsed.data.category,
+      content: parsed.data.content,
+      importance: parsed.data.importance,
+    })
+    .returning();
 
-    return NextResponse.json(memory);
-  } catch (err: any) {
-    console.error('POST memories:', err?.message);
-    return NextResponse.json({ error: 'Failed to add memory' }, { status: 500 });
+  return NextResponse.json(memory);
+});
+
+/**
+ * DELETE /api/memories?id=<uuid>   or   body { clearAll: true }
+ * - Single delete: verifies the memory is owned by the caller BEFORE updating.
+ * - clearAll: only affects rows WHERE userId = caller.
+ */
+export const DELETE = withErrors(async (req: NextRequest) => {
+  const auth = await requireAuth(req);
+  if (auth instanceof NextResponse) return auth;
+
+  // Parse optional body. Some clients send DELETE without a body; that's fine.
+  const rawBody = await req.json().catch(() => null);
+  if (rawBody !== null) {
+    const parsedBody = MemoryDeleteBodySchema.safeParse(rawBody);
+    if (parsedBody.success && parsedBody.data.clearAll) {
+      await db
+        .update(schema.memories)
+        .set({ isActive: false })
+        .where(
+          and(
+            eq(schema.memories.userId, auth.userId),
+            eq(schema.memories.isActive, true),
+          ),
+        );
+      return NextResponse.json({ success: true });
+    }
   }
-}
 
-export async function DELETE(req: NextRequest) {
-  try {
-    const auth = await requireAuth(req.headers);
-    if (auth instanceof NextResponse) return auth;
+  const id = new URL(req.url).searchParams.get('id');
+  if (!id) throw badRequest('Missing memory id.');
 
-    // Check for clearAll
-    try {
-      const body = await req.json();
-      if (body?.clearAll) {
-        await db.update(schema.memories)
-          .set({ isActive: false })
-          .where(and(eq(schema.memories.userId, auth.userId), eq(schema.memories.isActive, true)));
-        return NextResponse.json({ success: true });
-      }
-    } catch {}
+  // Throws 404 if the memory doesn't exist OR belongs to another user.
+  await assertMemoryOwnership(id, auth.userId);
 
-    const id = new URL(req.url).searchParams.get('id');
-    if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
+  await db
+    .update(schema.memories)
+    .set({ isActive: false })
+    .where(
+      and(
+        eq(schema.memories.id, id),
+        eq(schema.memories.userId, auth.userId),
+      ),
+    );
 
-    await db.update(schema.memories).set({ isActive: false }).where(eq(schema.memories.id, id));
-    return NextResponse.json({ success: true });
-  } catch (err: any) {
-    console.error('DELETE memories:', err?.message);
-    return NextResponse.json({ error: 'Failed to delete memory' }, { status: 500 });
-  }
-}
+  return NextResponse.json({ success: true });
+});

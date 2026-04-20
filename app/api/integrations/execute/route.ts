@@ -2,26 +2,20 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { executeTool } from '@/lib/composio';
-import { verifyToken, getTokenFromHeaders } from '@/lib/auth';
+import { requireAuth, withErrors } from '@/lib/api-guard';
+import { badRequest } from '@/lib/errors';
+import { ComposioExecuteSchema } from '@/lib/validators';
 
-export async function POST(req: NextRequest) {
-  try {
-    const token = getTokenFromHeaders(req.headers);
-    if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+export const POST = withErrors(async (req: NextRequest) => {
+  const auth = await requireAuth(req);
+  if (auth instanceof NextResponse) return auth;
 
-    const payload = await verifyToken(token);
-    if (!payload?.userId) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+  const body = await req.json().catch(() => null);
+  const parsed = ComposioExecuteSchema.safeParse(body);
+  if (!parsed.success) throw badRequest('tool slug is required.');
 
-    const { tool, params } = await req.json();
-    if (!tool) return NextResponse.json({ error: 'tool slug is required' }, { status: 400 });
-
-    const result = await executeTool(tool, payload.userId as string, params || {});
-    return NextResponse.json({ result });
-  } catch (error: any) {
-    console.error('Execute error:', error?.message || error);
-    return NextResponse.json(
-      { error: error?.message || 'Failed to execute tool' },
-      { status: 500 }
-    );
-  }
-}
+  // Composio scopes tool execution by the userId we pass. Since we pass the
+  // caller's own ID, cross-user execution is impossible at the SDK boundary.
+  const result = await executeTool(parsed.data.tool, auth.userId, parsed.data.params ?? {});
+  return NextResponse.json({ result });
+});

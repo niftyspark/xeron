@@ -1,53 +1,62 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAuth } from '@/lib/api-guard';
+import { requireAuth, assertConversationOwnership, withErrors } from '@/lib/api-guard';
 import { db, schema } from '@/lib/db';
 import { eq, asc } from 'drizzle-orm';
-import { ensureTables } from '@/lib/ensure-tables';
+import { badRequest } from '@/lib/errors';
+import { MessageCreateSchema, ConversationIdQuerySchema } from '@/lib/validators';
 
-export async function GET(req: NextRequest) {
-  try {
-    const auth = await requireAuth(req.headers);
-    if (auth instanceof NextResponse) return auth;
+/**
+ * GET /api/messages?conversationId=<uuid>
+ * Lists messages for a conversation OWNED BY the caller. Any foreign or
+ * malformed conversationId returns 404 (never reveals existence).
+ */
+export const GET = withErrors(async (req: NextRequest) => {
+  const auth = await requireAuth(req);
+  if (auth instanceof NextResponse) return auth;
 
-    await ensureTables();
-    const conversationId = new URL(req.url).searchParams.get('conversationId');
-    if (!conversationId) return NextResponse.json({ error: 'Missing conversationId' }, { status: 400 });
+  const parsed = ConversationIdQuerySchema.safeParse({
+    conversationId: new URL(req.url).searchParams.get('conversationId'),
+  });
+  if (!parsed.success) throw badRequest('Missing or invalid conversationId.');
 
-    const messages = await db.query.messages.findMany({
-      where: eq(schema.messages.conversationId, conversationId),
-      orderBy: [asc(schema.messages.createdAt)],
-    });
-    return NextResponse.json(messages);
-  } catch (err: any) {
-    console.error('GET messages:', err?.message);
-    return NextResponse.json({ error: 'Failed to load messages' }, { status: 500 });
+  await assertConversationOwnership(parsed.data.conversationId, auth.userId);
+
+  const messages = await db.query.messages.findMany({
+    where: eq(schema.messages.conversationId, parsed.data.conversationId),
+    orderBy: [asc(schema.messages.createdAt)],
+  });
+  return NextResponse.json(messages);
+});
+
+/**
+ * POST /api/messages
+ * Appends a message to the caller's conversation. Validates the body shape
+ * and the conversation ownership before writing.
+ */
+export const POST = withErrors(async (req: NextRequest) => {
+  const auth = await requireAuth(req);
+  if (auth instanceof NextResponse) return auth;
+
+  const body = await req.json().catch(() => null);
+  const parsed = MessageCreateSchema.safeParse(body);
+  if (!parsed.success) {
+    throw badRequest('Invalid message payload.');
   }
-}
+  const { conversationId, role, content } = parsed.data;
 
-export async function POST(req: NextRequest) {
-  try {
-    const auth = await requireAuth(req.headers);
-    if (auth instanceof NextResponse) return auth;
+  await assertConversationOwnership(conversationId, auth.userId);
 
-    await ensureTables();
-    const { conversationId, role, content } = await req.json();
-    if (!conversationId || !role || !content) {
-      return NextResponse.json({ error: 'Missing fields' }, { status: 400 });
-    }
+  const [message] = await db
+    .insert(schema.messages)
+    .values({ conversationId, role, content })
+    .returning();
 
-    const [message] = await db.insert(schema.messages).values({
-      conversationId, role, content,
-    }).returning();
+  await db
+    .update(schema.conversations)
+    .set({ updatedAt: new Date() })
+    .where(eq(schema.conversations.id, conversationId));
 
-    await db.update(schema.conversations)
-      .set({ updatedAt: new Date() })
-      .where(eq(schema.conversations.id, conversationId));
-
-    return NextResponse.json(message);
-  } catch (err: any) {
-    console.error('POST messages:', err?.message);
-    return NextResponse.json({ error: 'Failed to save message' }, { status: 500 });
-  }
-}
+  return NextResponse.json(message);
+});

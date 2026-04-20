@@ -2,23 +2,25 @@
 
 import { useState } from 'react';
 import { motion } from 'framer-motion';
+import { useRouter } from 'next/navigation';
 import { Button } from '@/app/components/ui/button';
 import { Input } from '@/app/components/ui/input';
-import { Switch } from '@/app/components/ui/switch';
 import { Badge } from '@/app/components/ui/badge';
 import { useUser } from '@/app/store/useUser';
 import { useUI } from '@/app/store/useUI';
 import { toast } from 'sonner';
 import {
-  User, Palette, Shield, Database, 
-  ExternalLink, Save, Check, CreditCard, Zap, Crown, Rocket, Loader2
+  User, Palette, Database, Shield, ExternalLink,
+  Save, Check, Zap, Crown, Rocket, Loader2,
 } from 'lucide-react';
 import { PLANS } from '@/lib/integrations';
+import { authFetch } from '@/lib/client-auth';
 
 export default function SettingsPage() {
-  const { walletAddress, displayName, token, logout } = useUser();
+  const { walletAddress, displayName, isAuthenticated, clear, setUser, userId } = useUser();
   const { appTheme, setAppTheme, userTier, messagesRemaining, messagesLimit } = useUI();
-  
+  const router = useRouter();
+
   const [name, setName] = useState(displayName || '');
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -26,19 +28,22 @@ export default function SettingsPage() {
   const [deletingAccount, setDeletingAccount] = useState(false);
 
   const handleSaveProfile = async () => {
-    if (!token) return;
+    if (!isAuthenticated) return;
     setSaving(true);
     try {
-      const res = await fetch('/api/user', {
+      const res = await authFetch('/api/user', {
         method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ displayName: name }),
+        json: { displayName: name },
       });
       if (res.ok) {
+        // Refresh the user-store displayName so the header reflects the change
+        // immediately (audit #58).
+        if (userId && walletAddress) {
+          setUser({ userId, walletAddress, displayName: name });
+        }
         toast.success('Profile updated');
+      } else {
+        toast.error('Could not update profile.');
       }
     } catch {
       toast.error('Error saving profile');
@@ -48,17 +53,16 @@ export default function SettingsPage() {
   };
 
   const handleExportData = async () => {
-    if (!token) {
-      toast.error('You must be logged in to export data');
+    if (!isAuthenticated) {
+      toast.error('You must be signed in to export data');
       return;
     }
     setExporting(true);
     try {
-      const headers = { Authorization: `Bearer ${token}` };
       const [conversationsRes, memoriesRes, userRes] = await Promise.all([
-        fetch('/api/conversations', { headers }),
-        fetch('/api/memories', { headers }),
-        fetch('/api/user', { headers }),
+        authFetch('/api/conversations'),
+        authFetch('/api/memories'),
+        authFetch('/api/user'),
       ]);
 
       const conversations = conversationsRes.ok ? await conversationsRes.json() : [];
@@ -72,7 +76,9 @@ export default function SettingsPage() {
         memories,
       };
 
-      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+      const blob = new Blob([JSON.stringify(exportData, null, 2)], {
+        type: 'application/json',
+      });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -90,27 +96,20 @@ export default function SettingsPage() {
   };
 
   const handleClearMemories = async () => {
-    if (!token) return;
+    if (!isAuthenticated) return;
     const confirmed = window.confirm(
-      'Are you sure you want to clear all memories? This action cannot be undone.'
+      'Are you sure you want to clear all memories? This action cannot be undone.',
     );
     if (!confirmed) return;
 
     setClearingMemories(true);
     try {
-      const res = await fetch('/api/memories', {
+      const res = await authFetch('/api/memories', {
         method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ clearAll: true }),
+        json: { clearAll: true },
       });
-      if (res.ok) {
-        toast.success('All memories cleared');
-      } else {
-        toast.error('Failed to clear memories');
-      }
+      if (res.ok) toast.success('All memories cleared');
+      else toast.error('Failed to clear memories');
     } catch {
       toast.error('Failed to clear memories');
     } finally {
@@ -119,27 +118,27 @@ export default function SettingsPage() {
   };
 
   const handleDeleteAccount = async () => {
-    if (!token) return;
+    if (!isAuthenticated) return;
     const confirmed = window.confirm(
-      'WARNING: This will permanently delete your account and all associated data including conversations, memories, and settings. This action CANNOT be undone.\n\nAre you sure you want to delete your account?'
+      'WARNING: This will permanently delete your account and all associated data. This action CANNOT be undone. Continue?',
     );
     if (!confirmed) return;
 
     setDeletingAccount(true);
     try {
-      const res = await fetch('/api/user', {
-        method: 'DELETE',
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
+      const res = await authFetch('/api/user', { method: 'DELETE' });
       if (res.ok) {
-        localStorage.removeItem('xeron_token');
-        localStorage.removeItem('xeron_user');
-        localStorage.removeItem('xeron-user');
-        localStorage.removeItem('xeron-ui');
-        logout();
-        window.location.href = '/';
+        // Server has already cleared the auth cookie. Purge local state too.
+        clear();
+        try {
+          localStorage.removeItem('xeron-user');
+          localStorage.removeItem('xeron-chat');
+          localStorage.removeItem('xeron-code-sessions');
+          localStorage.removeItem('xeron-ui');
+        } catch {
+          /* localStorage unavailable — ignore */
+        }
+        router.push('/');
       } else {
         toast.error('Failed to delete account');
       }
@@ -150,7 +149,10 @@ export default function SettingsPage() {
     }
   };
 
-  const usagePercent = messagesLimit > 0 ? Math.min((messagesRemaining / messagesLimit) * 100, 100) : 100;
+  const hasLimit = messagesLimit > 0;
+  const usagePercent = hasLimit
+    ? Math.min((messagesRemaining / messagesLimit) * 100, 100)
+    : 100;
 
   return (
     <div className="p-6 max-w-3xl mx-auto">
@@ -227,22 +229,30 @@ export default function SettingsPage() {
           <div className="mt-6 p-4 rounded-xl glass">
             <div className="flex items-center justify-between mb-2">
               <div>
-                <p className="text-sm text-white">Messages remaining today</p>
+                <p className="text-sm text-white">Messages today</p>
                 <p className="text-xs text-white/40">
-                  {messagesRemaining} / {messagesLimit > 0 ? messagesLimit : 'Unlimited'}
+                  {hasLimit
+                    ? `${messagesRemaining} / ${messagesLimit}`
+                    : 'Unlimited'}
                 </p>
               </div>
-              <div className="text-right">
-                <p className="text-lg font-bold text-white">{Math.round(usagePercent)}%</p>
-                <p className="text-[10px] text-white/40">used</p>
+              {hasLimit && (
+                <div className="text-right">
+                  <p className="text-lg font-bold text-white">
+                    {Math.round(usagePercent)}%
+                  </p>
+                  <p className="text-[10px] text-white/40">remaining</p>
+                </div>
+              )}
+            </div>
+            {hasLimit && (
+              <div className="w-full h-2 rounded-full bg-white/10 overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-blue-500 to-cyan-500 rounded-full transition-all"
+                  style={{ width: `${usagePercent}%` }}
+                />
               </div>
-            </div>
-            <div className="w-full h-2 rounded-full bg-white/10 overflow-hidden">
-              <div 
-                className="h-full bg-gradient-to-r from-blue-500 to-cyan-500 rounded-full transition-all" 
-                style={{ width: `${usagePercent}%` }}
-              />
-            </div>
+            )}
           </div>
         </motion.section>
 

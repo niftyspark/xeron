@@ -1,15 +1,15 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { useUI } from '@/app/store/useUI';
 import { useChat } from '@/app/store/useChat';
 import {
-  MessageSquare, Zap, Wrench, Calendar, Brain,
+  MessageSquare, Wrench, Calendar, Brain,
   Cpu, BookOpen, History, Settings, ChevronLeft,
-  ChevronRight, Sparkles, Plus, X, Pin, Code2,
+  ChevronRight, Sparkles, Plus, Code2,
 } from 'lucide-react';
 
 const navItems = [
@@ -26,6 +26,7 @@ const navItems = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
   const { sidebarOpen, toggleSidebar } = useUI();
   const { conversations, activeConversationId, setActiveConversation, loadMessages } = useChat();
 
@@ -76,7 +77,7 @@ export function Sidebar() {
           <button
             onClick={() => {
               useChat.getState().setActiveConversation(null);
-              window.location.href = '/dashboard';
+              router.push('/dashboard');
             }}
             className={cn(
               'flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm transition-all duration-200 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/20',
@@ -124,7 +125,7 @@ export function Sidebar() {
                   onClick={() => {
                     setActiveConversation(conv.id);
                     loadMessages(conv.id);
-                    if (pathname !== '/dashboard') window.location.href = '/dashboard';
+                    if (pathname !== '/dashboard') router.push('/dashboard');
                   }}
                   className={cn(
                     'w-full text-left px-2 py-1.5 rounded-md text-xs truncate transition-colors',

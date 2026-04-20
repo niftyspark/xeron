@@ -1,63 +1,60 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAuth } from '@/lib/api-guard';
+import {
+  requireAuth,
+  assertConversationOwnership,
+  withErrors,
+} from '@/lib/api-guard';
 import { db, schema } from '@/lib/db';
-import { eq, desc, and } from 'drizzle-orm';
-import { ensureTables } from '@/lib/ensure-tables';
+import { eq, desc } from 'drizzle-orm';
+import { badRequest } from '@/lib/errors';
+import { ConversationCreateSchema } from '@/lib/validators';
 
-export async function GET(req: NextRequest) {
-  try {
-    const auth = await requireAuth(req.headers);
-    if (auth instanceof NextResponse) return auth;
+export const GET = withErrors(async (req: NextRequest) => {
+  const auth = await requireAuth(req);
+  if (auth instanceof NextResponse) return auth;
 
-    await ensureTables();
-    const conversations = await db.query.conversations.findMany({
-      where: eq(schema.conversations.userId, auth.userId),
-      orderBy: [desc(schema.conversations.updatedAt)],
-    });
-    return NextResponse.json(conversations);
-  } catch (err: any) {
-    console.error('GET conversations:', err?.message);
-    return NextResponse.json({ error: 'Failed to load conversations' }, { status: 500 });
-  }
-}
+  const conversations = await db.query.conversations.findMany({
+    where: eq(schema.conversations.userId, auth.userId),
+    orderBy: [desc(schema.conversations.updatedAt)],
+  });
+  return NextResponse.json(conversations);
+});
 
-export async function POST(req: NextRequest) {
-  try {
-    const auth = await requireAuth(req.headers);
-    if (auth instanceof NextResponse) return auth;
+export const POST = withErrors(async (req: NextRequest) => {
+  const auth = await requireAuth(req);
+  if (auth instanceof NextResponse) return auth;
 
-    await ensureTables();
-    const { title, model } = await req.json();
+  const body = await req.json().catch(() => null);
+  const parsed = ConversationCreateSchema.safeParse(body);
+  if (!parsed.success) throw badRequest('Invalid conversation payload.');
 
-    const [conversation] = await db.insert(schema.conversations).values({
+  const [conversation] = await db
+    .insert(schema.conversations)
+    .values({
       userId: auth.userId,
-      title: title || 'New Conversation',
-      model: model || 'anthropic/claude-opus-4.6',
-    }).returning();
+      title: parsed.data.title,
+      model: parsed.data.model,
+    })
+    .returning();
 
-    return NextResponse.json(conversation);
-  } catch (err: any) {
-    console.error('POST conversations:', err?.message);
-    return NextResponse.json({ error: 'Failed to create conversation' }, { status: 500 });
-  }
-}
+  return NextResponse.json(conversation);
+});
 
-export async function DELETE(req: NextRequest) {
-  try {
-    const auth = await requireAuth(req.headers);
-    if (auth instanceof NextResponse) return auth;
+export const DELETE = withErrors(async (req: NextRequest) => {
+  const auth = await requireAuth(req);
+  if (auth instanceof NextResponse) return auth;
 
-    const id = new URL(req.url).searchParams.get('id');
-    if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
+  const id = new URL(req.url).searchParams.get('id');
+  if (!id) throw badRequest('Missing conversation id.');
 
-    await db.delete(schema.conversations).where(
-      and(eq(schema.conversations.id, id), eq(schema.conversations.userId, auth.userId))
-    );
-    return NextResponse.json({ success: true });
-  } catch (err: any) {
-    console.error('DELETE conversations:', err?.message);
-    return NextResponse.json({ error: 'Failed to delete' }, { status: 500 });
-  }
-}
+  // 404 on foreign/missing; never leaks existence.
+  await assertConversationOwnership(id, auth.userId);
+
+  await db
+    .delete(schema.conversations)
+    .where(eq(schema.conversations.id, id));
+
+  return NextResponse.json({ success: true });
+});

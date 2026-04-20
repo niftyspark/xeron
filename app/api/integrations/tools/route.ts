@@ -2,19 +2,17 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { listTools } from '@/lib/composio';
+import { requireAuth, withErrors } from '@/lib/api-guard';
 
-export async function GET(req: NextRequest) {
-  try {
-    const toolkit = req.nextUrl.searchParams.get('toolkit') || undefined;
+export const GET = withErrors(async (req: NextRequest) => {
+  // Audit #24: authenticate before hitting the paid upstream.
+  const auth = await requireAuth(req);
+  if (auth instanceof NextResponse) return auth;
 
-    const result = await listTools(toolkit);
-    const tools = Array.isArray(result) ? result : (result?.items || result);
-    return NextResponse.json({ tools });
-  } catch (error: any) {
-    console.error('Tools error:', error?.message || error);
-    return NextResponse.json(
-      { error: error?.message || 'Failed to list tools' },
-      { status: 500 }
-    );
-  }
-}
+  const toolkit = req.nextUrl.searchParams.get('toolkit') ?? undefined;
+  const result = await listTools(toolkit);
+  const tools = Array.isArray(result)
+    ? result
+    : (result as { items?: unknown[] })?.items ?? result;
+  return NextResponse.json({ tools });
+});

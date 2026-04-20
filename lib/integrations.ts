@@ -1,4 +1,31 @@
-export const PLANS = [
+/**
+ * Subscription plan catalog consumed by the UI.
+ *
+ * Typed explicitly (vs. the previous `as const` inference) so that optional
+ * fields like `popular` and `trialDays` are accessible on every plan without
+ * the TypeScript narrowing that caused settings/tools pages to fail the build
+ * once `typescript.ignoreBuildErrors` was turned off.
+ */
+
+export type PlanId = 'free' | 'starter' | 'pro' | 'ultra';
+
+export interface Plan {
+  id: PlanId;
+  name: string;
+  price: number;
+  period: string;
+  tier?: string;
+  trialDays?: number;
+  popular?: boolean;
+  features: readonly string[];
+  limits: {
+    messagesPerDay: number;
+    memories: number;
+    skills: number;
+  };
+}
+
+export const PLANS: readonly Plan[] = [
   {
     id: 'free',
     name: 'Free',
@@ -79,6 +106,4 @@ export const PLANS = [
       skills: -1,
     },
   },
-] as const;
-
-export type PlanId = typeof PLANS[number]['id'];
+];

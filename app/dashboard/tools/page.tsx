@@ -1,13 +1,13 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Input } from '@/app/components/ui/input';
 import { Button } from '@/app/components/ui/button';
 import { Badge } from '@/app/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger } from '@/app/components/ui/tabs';
 import { PLANS } from '@/lib/integrations';
-import { getClientToken } from '@/lib/client-auth';
+import { authFetch } from '@/lib/client-auth';
 import { toast } from 'sonner';
 import {
   Search, ExternalLink, Check, Zap, Star, Crown, Rocket,
@@ -61,27 +61,29 @@ export default function ToolsPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/integrations/toolkits');
+      const res = await authFetch('/api/integrations/toolkits');
       if (!res.ok) throw new Error('Failed to fetch toolkits');
-      const data = await res.json();
-      setToolkits(data.toolkits?.items || data.toolkits || []);
-    } catch (err: any) {
-      setError(err.message);
+      const data = (await res.json()) as {
+        toolkits?: { items?: ComposioToolkit[] } | ComposioToolkit[];
+      };
+      const raw = data.toolkits;
+      setToolkits(Array.isArray(raw) ? raw : (raw?.items ?? []));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load toolkits.');
     } finally {
       setLoading(false);
     }
   }, []);
 
   const fetchConnections = useCallback(async () => {
-    const token = getClientToken();
-    if (!token) return;
     try {
-      const res = await fetch('/api/integrations/connections', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await authFetch('/api/integrations/connections');
       if (!res.ok) return;
-      const data = await res.json();
-      setConnections(data.connections?.items || data.connections || []);
+      const data = (await res.json()) as {
+        connections?: { items?: ConnectedAccount[] } | ConnectedAccount[];
+      };
+      const raw = data.connections;
+      setConnections(Array.isArray(raw) ? raw : (raw?.items ?? []));
     } catch (err) {
       console.error(err);
     }
@@ -92,10 +94,15 @@ export default function ToolsPage() {
     setToolActions([]);
     setToolResult(null);
     try {
-      const res = await fetch(`/api/integrations/tools?toolkit=${toolkitSlug}`);
+      const res = await authFetch(
+        `/api/integrations/tools?toolkit=${encodeURIComponent(toolkitSlug)}`,
+      );
       if (!res.ok) throw new Error('Failed to fetch tools');
-      const data = await res.json();
-      setToolActions(data.tools?.items || data.tools || []);
+      const data = (await res.json()) as {
+        tools?: { items?: ToolAction[] } | ToolAction[];
+      };
+      const raw = data.tools;
+      setToolActions(Array.isArray(raw) ? raw : (raw?.items ?? []));
     } catch (err) {
       console.error(err);
     } finally {
@@ -108,96 +115,93 @@ export default function ToolsPage() {
     fetchConnections();
   }, [fetchToolkits, fetchConnections]);
 
+  // Track poll timers so we can cancel them on unmount / early success
+  // (audit #46: previously never cleared → memory leaks + setState warnings).
+  const pollTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  useEffect(() => {
+    return () => {
+      pollTimersRef.current.forEach((t) => clearTimeout(t));
+      pollTimersRef.current = [];
+    };
+  }, []);
+
   const handleConnect = async (toolkitSlug: string) => {
-    const token = getClientToken();
-    if (!token) {
-      toast.error('Please sign in first');
-      return;
-    }
     setConnectingSlug(toolkitSlug);
     try {
-      const res = await fetch('/api/integrations/connect', {
+      const res = await authFetch('/api/integrations/connect', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ toolkit: toolkitSlug }),
+        json: { toolkit: toolkitSlug, redirectUrl: window.location.href },
       });
       if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || `Failed to connect (${res.status})`);
+        const err = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(err.error ?? `Failed to connect (${res.status})`);
       }
-      const data = await res.json();
-      // The connectionRequest object has { id, status, redirectUrl }
-      const cr = data.connectionRequest;
-      const redirectUrl = cr?.redirectUrl || cr?.redirect_url || cr?.url || null;
-      
-      const connectionId = data.connectionRequest?.id;
+      const data = (await res.json()) as {
+        connectionRequest?: { id?: string; redirectUrl?: string | null };
+      };
+      const redirectUrl = data.connectionRequest?.redirectUrl ?? null;
+      const connectionId = data.connectionRequest?.id ?? null;
 
       if (redirectUrl) {
         toast.success('Opening OAuth window...');
         window.open(redirectUrl, '_blank', 'width=600,height=700');
-        
-        // Poll for connection completion using status endpoint
+
         if (connectionId) {
+          let stopped = false;
           const pollStatus = async () => {
+            if (stopped) return;
             try {
-              const statusRes = await fetch(`/api/integrations/status?id=${connectionId}`, {
-                headers: { Authorization: `Bearer ${token}` },
-              });
+              const statusRes = await authFetch(
+                `/api/integrations/status?id=${encodeURIComponent(connectionId)}`,
+              );
               if (statusRes.ok) {
-                const statusData = await statusRes.json();
+                const statusData = (await statusRes.json()) as { status?: string };
                 if (statusData.status === 'ACTIVE') {
+                  stopped = true;
+                  pollTimersRef.current.forEach((t) => clearTimeout(t));
+                  pollTimersRef.current = [];
                   toast.success(`Connected to ${toolkitSlug}!`);
                   fetchConnections();
-                  return true;
                 }
               }
-            } catch {}
-            return false;
+            } catch {
+              /* will retry on next tick */
+            }
           };
-
-          // Poll at increasing intervals
-          const intervals = [3000, 5000, 8000, 12000, 18000, 25000];
-          for (const delay of intervals) {
-            setTimeout(async () => {
-              await pollStatus();
-            }, delay);
-          }
+          [3000, 5000, 8000, 12000, 18000, 25000].forEach((delay) => {
+            const id = setTimeout(pollStatus, delay);
+            pollTimersRef.current.push(id);
+          });
         } else {
-          // No connection ID, just poll connections list
-          setTimeout(() => fetchConnections(), 5000);
-          setTimeout(() => fetchConnections(), 15000);
+          pollTimersRef.current.push(setTimeout(() => fetchConnections(), 5000));
+          pollTimersRef.current.push(setTimeout(() => fetchConnections(), 15000));
         }
       } else {
-        // No redirect needed (API key based or already connected)
         toast.success(`Connected to ${toolkitSlug}!`);
         fetchConnections();
       }
-    } catch (err: any) {
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Connection failed';
       console.error('Connect error:', err);
-      toast.error(err.message || 'Connection failed');
+      toast.error(msg);
     } finally {
       setConnectingSlug(null);
     }
   };
 
   const handleDisconnect = async (connectedAccountId: string) => {
-    const token = getClientToken();
-    if (!token) return;
     setDisconnectingId(connectedAccountId);
     try {
-      await fetch('/api/integrations/connections', {
+      const res = await authFetch('/api/integrations/connections', {
         method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ connectedAccountId }),
+        json: { connectedAccountId },
       });
-      toast.success('Disconnected');
-      fetchConnections();
+      if (res.ok || res.status === 404) {
+        toast.success('Disconnected');
+        fetchConnections();
+      } else {
+        toast.error('Failed to disconnect');
+      }
     } catch (err) {
       console.error(err);
       toast.error('Failed to disconnect');
@@ -207,30 +211,25 @@ export default function ToolsPage() {
   };
 
   const handleExecuteTool = async (toolSlug: string) => {
-    const token = getClientToken();
-    if (!token) return;
     setExecutingTool(toolSlug);
     setToolResult(null);
     try {
-      const res = await fetch('/api/integrations/execute', {
+      const res = await authFetch('/api/integrations/execute', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ tool: toolSlug, params: {} }),
+        json: { tool: toolSlug, params: {} },
       });
-      const data = await res.json();
+      const data = (await res.json()) as { result?: unknown; error?: string };
       if (res.ok) {
         setToolResult(JSON.stringify(data.result, null, 2));
         toast.success('Tool executed');
       } else {
-        setToolResult(JSON.stringify(data.error, null, 2));
-        toast.error(data.error || 'Execution failed');
+        setToolResult(JSON.stringify(data.error ?? 'Execution failed', null, 2));
+        toast.error(data.error ?? 'Execution failed');
       }
-    } catch (err: any) {
-      setToolResult(`Error: ${err.message}`);
-      toast.error(err.message);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Execution failed';
+      setToolResult(`Error: ${msg}`);
+      toast.error(msg);
     } finally {
       setExecutingTool(null);
     }

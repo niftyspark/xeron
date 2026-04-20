@@ -2,10 +2,15 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { Send, Square, Paperclip, Layers, ImageIcon, X, Eye } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/app/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useUI } from '@/app/store/useUI';
 import { IntegrationsPanel } from './IntegrationsPanel';
+
+/** Maximum attachment size — matches /api/ai/analyze-image server-side cap. */
+const MAX_FILE_BYTES = 5 * 1024 * 1024;
+const MAX_TEXT_CHARS = 10_000;
 
 interface Attachment {
   type: 'text' | 'image';
@@ -63,36 +68,59 @@ export function ChatInput({ onSend, onImageGenerate, isStreaming, onStop }: Chat
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // Hard size cap (audit #19): prevents persisting megabyte blobs into
+    // localStorage and wasting upload bandwidth on images the server will
+    // reject anyway.
+    if (file.size > MAX_FILE_BYTES) {
+      toast.error(
+        `File "${file.name}" is too large (${(file.size / 1024 / 1024).toFixed(
+          1,
+        )} MB). Max is ${MAX_FILE_BYTES / 1024 / 1024} MB.`,
+      );
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
     const isImage = file.type.startsWith('image/');
 
     if (isImage) {
-      // Read as base64 for images
       const reader = new FileReader();
       reader.onload = (event) => {
         const dataUrl = event.target?.result as string;
-        setAttachments(prev => [...prev, {
-          type: 'image',
-          name: file.name,
-          content: dataUrl,
-          preview: dataUrl,
-        }]);
+        setAttachments((prev) => [
+          ...prev,
+          { type: 'image', name: file.name, content: dataUrl, preview: dataUrl },
+        ]);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      };
+      reader.onerror = () => {
+        toast.error('Could not read the image file.');
+        if (fileInputRef.current) fileInputRef.current.value = '';
       };
       reader.readAsDataURL(file);
     } else {
-      // Read as text for code/documents
       const reader = new FileReader();
       reader.onload = (event) => {
-        const text = event.target?.result as string;
-        setAttachments(prev => [...prev, {
-          type: 'text',
-          name: file.name,
-          content: text.slice(0, 10000),
-        }]);
+        const text = (event.target?.result as string) ?? '';
+        const truncated = text.length > MAX_TEXT_CHARS;
+        const content = truncated ? text.slice(0, MAX_TEXT_CHARS) : text;
+        if (truncated) {
+          toast.warning(
+            `"${file.name}" was truncated to the first ${MAX_TEXT_CHARS.toLocaleString()} characters.`,
+          );
+        }
+        setAttachments((prev) => [
+          ...prev,
+          { type: 'text', name: file.name, content },
+        ]);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      };
+      reader.onerror = () => {
+        toast.error('Could not read the file.');
+        if (fileInputRef.current) fileInputRef.current.value = '';
       };
       reader.readAsText(file);
     }
-
-    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const removeAttachment = (index: number) => {
@@ -159,7 +187,7 @@ export function ChatInput({ onSend, onImageGenerate, isStreaming, onStop }: Chat
               type="file"
               className="hidden"
               onChange={handleFileUpload}
-              accept=".txt,.md,.json,.js,.ts,.py,.html,.css,.svg,.png,.jpg,.jpeg,.gif,.webp,.bmp,.pdf"
+              accept=".txt,.md,.json,.js,.ts,.py,.html,.css,.svg,.png,.jpg,.jpeg,.gif,.webp,.bmp"
             />
 
             {/* Integrations Button */}

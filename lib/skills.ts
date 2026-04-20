@@ -290,10 +290,20 @@ export const SKILL_CATEGORIES = [
 ];
 
 /**
- * ALL skills are always active. The skillIds parameter is ignored.
- * Skills are built into the AI's system prompt permanently.
+ * Builds the skills section of the system prompt.
+ *
+ * Audit #26 addressed: the previous implementation ignored `skillIds` and
+ * unconditionally concatenated all 24 skill prompts (~10 KB) into every
+ * request. Now returns only the skills the user explicitly enabled, and
+ * returns an empty string when none are selected so no tokens are wasted.
  */
-export function getSkillSystemPrompt(_skillIds?: string[]): string {
-  return '\n\n## YOUR ACTIVE SKILLS (always enabled):\n' +
-    BUILTIN_SKILLS.map(s => `- **${s.name}**: ${s.systemPrompt}`).join('\n');
+export function getSkillSystemPrompt(skillIds?: string[]): string {
+  if (!skillIds || skillIds.length === 0) return '';
+  const wanted = new Set(skillIds);
+  const active = BUILTIN_SKILLS.filter((s) => wanted.has(s.id));
+  if (active.length === 0) return '';
+  return (
+    '\n\n## YOUR ACTIVE SKILLS:\n' +
+    active.map((s) => `- **${s.name}**: ${s.systemPrompt}`).join('\n')
+  );
 }

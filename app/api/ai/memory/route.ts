@@ -1,27 +1,29 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyToken, getTokenFromHeaders } from '@/lib/auth';
+import { requireAuth, withErrors } from '@/lib/api-guard';
 import { db, schema } from '@/lib/db';
-import { eq, desc } from 'drizzle-orm';
-import { ensureTables } from '@/lib/ensure-tables';
+import { and, eq, desc } from 'drizzle-orm';
 
-export async function GET(req: NextRequest) {
-  try {
-    const token = getTokenFromHeaders(req.headers);
-    if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    const payload = await verifyToken(token);
-    if (!payload) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+/**
+ * GET /api/ai/memory
+ *
+ * Returns the caller's 10 most-recent ACTIVE memories. This differs from the
+ * general /api/memories only in the `limit: 10` and its internal use by the
+ * chat flow. Both endpoints scope by userId and isActive = true.
+ */
+export const GET = withErrors(async (req: NextRequest) => {
+  const auth = await requireAuth(req);
+  if (auth instanceof NextResponse) return auth;
 
-    await ensureTables();
-    const memories = await db.query.memories.findMany({
-      where: eq(schema.memories.userId, payload.userId),
-      orderBy: [desc(schema.memories.createdAt)],
-      limit: 10,
-    });
+  const memories = await db.query.memories.findMany({
+    where: and(
+      eq(schema.memories.userId, auth.userId),
+      eq(schema.memories.isActive, true),
+    ),
+    orderBy: [desc(schema.memories.createdAt)],
+    limit: 10,
+  });
 
-    return NextResponse.json(memories);
-  } catch (err) {
-    return NextResponse.json({ error: 'Server error' }, { status: 500 });
-  }
-}
+  return NextResponse.json(memories);
+});

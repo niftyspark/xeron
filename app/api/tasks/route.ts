@@ -1,94 +1,127 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAuth } from '@/lib/api-guard';
+import {
+  requireAuth,
+  assertTaskOwnership,
+  withErrors,
+} from '@/lib/api-guard';
 import { db, schema } from '@/lib/db';
-import { eq, desc, and } from 'drizzle-orm';
-import { ensureTables } from '@/lib/ensure-tables';
+import { eq, desc } from 'drizzle-orm';
+import { badRequest } from '@/lib/errors';
+import { TaskCreateSchema, TaskUpdateSchema } from '@/lib/validators';
+import { computeNextRun } from '@/lib/cron';
 
-export async function GET(req: NextRequest) {
-  try {
-    const auth = await requireAuth(req.headers);
-    if (auth instanceof NextResponse) return auth;
+export const GET = withErrors(async (req: NextRequest) => {
+  const auth = await requireAuth(req);
+  if (auth instanceof NextResponse) return auth;
 
-    await ensureTables();
-    const tasks = await db.query.scheduledTasks.findMany({
-      where: eq(schema.scheduledTasks.userId, auth.userId),
-      orderBy: [desc(schema.scheduledTasks.createdAt)],
-    });
-    return NextResponse.json(tasks);
-  } catch (err: any) {
-    console.error('GET tasks:', err?.message);
-    return NextResponse.json({ error: 'Failed to load tasks' }, { status: 500 });
+  const tasks = await db.query.scheduledTasks.findMany({
+    where: eq(schema.scheduledTasks.userId, auth.userId),
+    orderBy: [desc(schema.scheduledTasks.createdAt)],
+  });
+  return NextResponse.json(tasks);
+});
+
+export const POST = withErrors(async (req: NextRequest) => {
+  const auth = await requireAuth(req);
+  if (auth instanceof NextResponse) return auth;
+
+  const body = await req.json().catch(() => null);
+  const parsed = TaskCreateSchema.safeParse(body);
+  if (!parsed.success) {
+    throw badRequest(parsed.error.issues[0]?.message ?? 'Invalid task payload.');
   }
-}
+  const input = parsed.data;
 
-export async function POST(req: NextRequest) {
-  try {
-    const auth = await requireAuth(req.headers);
-    if (auth instanceof NextResponse) return auth;
+  // Compute the first nextRun NOW. Previously this was NULL and the
+  // dispatcher query `lte(nextRun, now)` excluded new tasks forever.
+  const { nextRun } = computeNextRun(input.cronExpression, input.timezone);
 
-    await ensureTables();
-    const body = await req.json();
-    if (!body.name || !body.prompt) {
-      return NextResponse.json({ error: 'Name and prompt are required' }, { status: 400 });
-    }
-
-    const [task] = await db.insert(schema.scheduledTasks).values({
+  const [task] = await db
+    .insert(schema.scheduledTasks)
+    .values({
       userId: auth.userId,
-      name: body.name,
-      description: body.description || '',
-      prompt: body.prompt,
-      model: body.model || 'anthropic/claude-opus-4.6',
-      cronExpression: body.cronExpression || '0 9 * * *',
-      timezone: body.timezone || 'UTC',
+      name: input.name,
+      description: input.description,
+      prompt: input.prompt,
+      model: input.model,
+      cronExpression: input.cronExpression,
+      timezone: input.timezone,
       isActive: true,
-    }).returning();
+      nextRun,
+    })
+    .returning();
 
-    return NextResponse.json(task);
-  } catch (err: any) {
-    console.error('POST tasks:', err?.message);
-    return NextResponse.json({ error: 'Failed to create task' }, { status: 500 });
+  return NextResponse.json(task);
+});
+
+/**
+ * PATCH /api/tasks
+ *
+ * Two behaviours:
+ *  - toggle-only: `{ id, toggle: true }` flips isActive.
+ *  - edit: any subset of the mutable fields. Cron/timezone changes re-compute
+ *    nextRun so the schedule takes effect on the next dispatcher tick.
+ */
+export const PATCH = withErrors(async (req: NextRequest) => {
+  const auth = await requireAuth(req);
+  if (auth instanceof NextResponse) return auth;
+
+  const body = await req.json().catch(() => null);
+  const parsed = TaskUpdateSchema.safeParse(body);
+  if (!parsed.success) {
+    throw badRequest(parsed.error.issues[0]?.message ?? 'Invalid update payload.');
   }
-}
+  const { id, toggle, ...fields } = parsed.data;
 
-export async function PATCH(req: NextRequest) {
-  try {
-    const auth = await requireAuth(req.headers);
-    if (auth instanceof NextResponse) return auth;
+  // Ownership — 404 on foreign/missing.
+  const current = await assertTaskOwnership(id, auth.userId);
 
-    const { id, toggle } = await req.json();
-    if (toggle && id) {
-      const task = await db.query.scheduledTasks.findFirst({
-        where: and(eq(schema.scheduledTasks.id, id), eq(schema.scheduledTasks.userId, auth.userId)),
-      });
-      if (task) {
-        await db.update(schema.scheduledTasks)
-          .set({ isActive: !task.isActive })
-          .where(eq(schema.scheduledTasks.id, id));
-      }
-    }
-    return NextResponse.json({ success: true });
-  } catch (err: any) {
-    console.error('PATCH tasks:', err?.message);
-    return NextResponse.json({ error: 'Failed to update task' }, { status: 500 });
+  // Toggle branch.
+  if (toggle) {
+    await db
+      .update(schema.scheduledTasks)
+      .set({ isActive: !current.isActive })
+      .where(eq(schema.scheduledTasks.id, id));
+    return NextResponse.json({ success: true, isActive: !current.isActive });
   }
-}
 
-export async function DELETE(req: NextRequest) {
-  try {
-    const auth = await requireAuth(req.headers);
-    if (auth instanceof NextResponse) return auth;
+  // Edit branch. Re-compute nextRun only if cron or timezone changed.
+  const cronChanged =
+    (fields.cronExpression && fields.cronExpression !== current.cronExpression) ||
+    (fields.timezone && fields.timezone !== current.timezone);
 
-    const id = new URL(req.url).searchParams.get('id');
-    if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
-
-    await db.delete(schema.scheduledTasks).where(
-      and(eq(schema.scheduledTasks.id, id), eq(schema.scheduledTasks.userId, auth.userId))
+  const updates: Partial<typeof schema.scheduledTasks.$inferInsert> = { ...fields };
+  if (cronChanged) {
+    const { nextRun } = computeNextRun(
+      fields.cronExpression ?? current.cronExpression,
+      fields.timezone ?? current.timezone ?? 'UTC',
     );
-    return NextResponse.json({ success: true });
-  } catch (err: any) {
-    console.error('DELETE tasks:', err?.message);
-    return NextResponse.json({ error: 'Failed to delete task' }, { status: 500 });
+    updates.nextRun = nextRun;
   }
-}
+
+  if (Object.keys(updates).length === 0) {
+    return NextResponse.json({ success: true });
+  }
+
+  await db
+    .update(schema.scheduledTasks)
+    .set(updates)
+    .where(eq(schema.scheduledTasks.id, id));
+
+  return NextResponse.json({ success: true });
+});
+
+export const DELETE = withErrors(async (req: NextRequest) => {
+  const auth = await requireAuth(req);
+  if (auth instanceof NextResponse) return auth;
+
+  const id = new URL(req.url).searchParams.get('id');
+  if (!id) throw badRequest('Missing task id.');
+
+  await assertTaskOwnership(id, auth.userId);
+
+  await db.delete(schema.scheduledTasks).where(eq(schema.scheduledTasks.id, id));
+  return NextResponse.json({ success: true });
+});

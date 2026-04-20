@@ -1,12 +1,13 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { useUI } from '@/app/store/useUI';
 import { useUser } from '@/app/store/useUser';
-import { X, Layers, Search, Check, Loader2, Link, Unplug } from 'lucide-react';
+import { X, Layers, Search, Check, Loader2 } from 'lucide-react';
 import { Button } from '@/app/components/ui/button';
 import { Badge } from '@/app/components/ui/badge';
+import { authFetch } from '@/lib/client-auth';
 
 interface ComposioToolkit {
   name: string;
@@ -24,7 +25,7 @@ interface ConnectedAccount {
 
 export function IntegrationsPanel() {
   const { integrationsPanelOpen, setIntegrationsPanelOpen } = useUI();
-  const { token } = useUser();
+  const { isAuthenticated } = useUser();
   const [search, setSearch] = useState('');
   const [toolkits, setToolkits] = useState<ComposioToolkit[]>([]);
   const [connections, setConnections] = useState<ConnectedAccount[]>([]);
@@ -32,56 +33,57 @@ export function IntegrationsPanel() {
   const [connectingSlug, setConnectingSlug] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
-    if (!integrationsPanelOpen) return;
+    if (!integrationsPanelOpen || !isAuthenticated) return;
     setLoading(true);
     try {
+      // Both endpoints are now authenticated (audit #24). The httpOnly
+      // session cookie is attached automatically by authFetch().
       const [tkRes, connRes] = await Promise.all([
-        fetch('/api/integrations/toolkits'),
-        token
-          ? fetch('/api/integrations/connections', {
-              headers: { Authorization: `Bearer ${token}` },
-            })
-          : Promise.resolve(null),
+        authFetch('/api/integrations/toolkits'),
+        authFetch('/api/integrations/connections'),
       ]);
 
       if (tkRes.ok) {
-        const tkData = await tkRes.json();
-        setToolkits(tkData.toolkits?.items || tkData.toolkits || []);
+        const tkData = (await tkRes.json()) as {
+          toolkits?: { items?: ComposioToolkit[] } | ComposioToolkit[];
+        };
+        const raw = tkData.toolkits;
+        const list = Array.isArray(raw) ? raw : (raw?.items ?? []);
+        setToolkits(list);
       }
 
-      if (connRes && connRes.ok) {
-        const connData = await connRes.json();
-        setConnections(connData.connections?.items || connData.connections || []);
+      if (connRes.ok) {
+        const connData = (await connRes.json()) as {
+          connections?: { items?: ConnectedAccount[] } | ConnectedAccount[];
+        };
+        const raw = connData.connections;
+        const list = Array.isArray(raw) ? raw : (raw?.items ?? []);
+        setConnections(list);
       }
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
     }
-  }, [integrationsPanelOpen, token]);
+  }, [integrationsPanelOpen, isAuthenticated]);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
 
   const handleConnect = async (slug: string) => {
-    if (!token) return;
+    if (!isAuthenticated) return;
     setConnectingSlug(slug);
     try {
-      const res = await fetch('/api/integrations/connect', {
+      const res = await authFetch('/api/integrations/connect', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ toolkit: slug, redirectUrl: window.location.href }),
+        json: { toolkit: slug, redirectUrl: window.location.href },
       });
       if (res.ok) {
-        const data = await res.json();
-        const redirectUrl =
-          data.connectionRequest?.redirectUrl ||
-          data.connectionRequest?.connectionRequest?.redirectUrl ||
-          data.connectionRequest?.url;
+        const data = (await res.json()) as {
+          connectionRequest?: { redirectUrl?: string | null };
+        };
+        const redirectUrl = data.connectionRequest?.redirectUrl ?? null;
         if (redirectUrl) {
           window.open(redirectUrl, '_blank', 'width=600,height=700');
         }

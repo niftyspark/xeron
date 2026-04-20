@@ -1,78 +1,64 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyToken, getTokenFromHeaders } from '@/lib/auth';
+import { requireAuth, withErrors } from '@/lib/api-guard';
 import { db, schema } from '@/lib/db';
 import { eq } from 'drizzle-orm';
-import { ensureTables } from '@/lib/ensure-tables';
+import { badRequest, notFound } from '@/lib/errors';
+import { UserPatchSchema } from '@/lib/validators';
+import { buildClearAuthCookieOptions } from '@/lib/auth';
 
-export async function GET(req: NextRequest) {
-  try {
-    const token = getTokenFromHeaders(req.headers);
-    if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    const payload = await verifyToken(token);
-    if (!payload) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+export const GET = withErrors(async (req: NextRequest) => {
+  const auth = await requireAuth(req);
+  if (auth instanceof NextResponse) return auth;
 
-    await ensureTables();
-    const user = await db.query.users.findFirst({
-      where: eq(schema.users.id, payload.userId),
-    });
+  const user = await db.query.users.findFirst({
+    where: eq(schema.users.id, auth.userId),
+  });
+  if (!user) throw notFound('User not found.');
 
-    if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 });
+  return NextResponse.json({
+    id: user.id,
+    walletAddress: user.walletAddress,
+    displayName: user.displayName,
+    ensName: user.ensName,
+    avatarUrl: user.avatarUrl,
+    preferredModel: user.preferredModel,
+    settings: user.settings,
+    createdAt: user.createdAt,
+  });
+});
 
-    return NextResponse.json({
-      id: user.id,
-      walletAddress: user.walletAddress,
-      displayName: user.displayName,
-      ensName: user.ensName,
-      avatarUrl: user.avatarUrl,
-      preferredModel: user.preferredModel,
-      settings: user.settings,
-      createdAt: user.createdAt,
-    });
-  } catch (err) {
-    return NextResponse.json({ error: 'Server error' }, { status: 500 });
+export const PATCH = withErrors(async (req: NextRequest) => {
+  const auth = await requireAuth(req);
+  if (auth instanceof NextResponse) return auth;
+
+  const body = await req.json().catch(() => null);
+  const parsed = UserPatchSchema.safeParse(body);
+  if (!parsed.success) throw badRequest('Invalid update payload.');
+
+  // Drop undefined fields so we don't accidentally null-out columns.
+  const updates: Partial<typeof schema.users.$inferInsert> = {
+    updatedAt: new Date(),
+  };
+  if (parsed.data.displayName !== undefined) updates.displayName = parsed.data.displayName;
+  if (parsed.data.preferredModel !== undefined) {
+    updates.preferredModel = parsed.data.preferredModel;
   }
-}
+  if (parsed.data.settings !== undefined) updates.settings = parsed.data.settings;
 
-export async function PATCH(req: NextRequest) {
-  try {
-    const token = getTokenFromHeaders(req.headers);
-    if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    const payload = await verifyToken(token);
-    if (!payload) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+  await db.update(schema.users).set(updates).where(eq(schema.users.id, auth.userId));
+  return NextResponse.json({ success: true });
+});
 
-    await ensureTables();
-    const body = await req.json();
-    const updates: any = {};
+export const DELETE = withErrors(async (req: NextRequest) => {
+  const auth = await requireAuth(req);
+  if (auth instanceof NextResponse) return auth;
 
-    if (body.displayName) updates.displayName = body.displayName;
-    if (body.preferredModel) updates.preferredModel = body.preferredModel;
-    if (body.settings) updates.settings = body.settings;
-    updates.updatedAt = new Date();
+  await db.delete(schema.users).where(eq(schema.users.id, auth.userId));
 
-    await db.update(schema.users).set(updates).where(eq(schema.users.id, payload.userId));
-
-    return NextResponse.json({ success: true });
-  } catch (err) {
-    return NextResponse.json({ error: 'Server error' }, { status: 500 });
-  }
-}
-
-export async function DELETE(req: NextRequest) {
-  try {
-    const token = getTokenFromHeaders(req.headers);
-    if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    const payload = await verifyToken(token);
-    if (!payload) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
-
-    await ensureTables();
-    // Delete user - cascades will handle related data (conversations, memories, etc.)
-    await db.delete(schema.users).where(eq(schema.users.id, payload.userId));
-
-    return NextResponse.json({ success: true, deleted: true });
-  } catch (err) {
-    console.error('Delete account error:', err);
-    return NextResponse.json({ error: 'Server error' }, { status: 500 });
-  }
-}
+  // Clear the session cookie — the user no longer exists server-side.
+  const response = NextResponse.json({ success: true, deleted: true });
+  response.cookies.set({ ...buildClearAuthCookieOptions(), value: '' });
+  return response;
+});
