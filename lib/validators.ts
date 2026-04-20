@@ -161,6 +161,7 @@ export const LearningCreateSchema = z
  */
 export const UserPreferencesSchema = z
   .object({
+    provider: z.literal('groq').default('groq'),
     memoryEnabled: z.boolean().default(true),
     toolsEnabled: z
       .object({
@@ -178,6 +179,7 @@ export type UserPreferences = z.infer<typeof UserPreferencesSchema>;
 
 /** Canonical defaults used when a user has no preferences row yet. */
 export const DEFAULT_USER_PREFERENCES: UserPreferences = {
+  provider: 'groq',
   memoryEnabled: true,
   toolsEnabled: { web_search: true, analyze_image: true },
   enabledSkillIds: [],

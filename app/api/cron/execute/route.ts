@@ -4,8 +4,7 @@ import { eq, lte, and } from 'drizzle-orm';
 import { computeNextRun } from '@/lib/cron';
 import { safeEquals } from '@/lib/encryption';
 import { XERON_SYSTEM_PROMPT } from '@/lib/character';
-
-const API_URL = 'https://ai.api.4everland.org/api/v1/chat/completions';
+import { getProviderConfig, mapModelForProvider, type AIProvider } from '@/lib/ai';
 
 /**
  * System prompt for scheduled-task executions. Built once at module load.
@@ -44,7 +43,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const apiKey = process.env.FOUR_EVER_LAND_API_KEY;
+  // Use Groq for scheduled tasks
+  const provider: AIProvider = 'groq';
+  const { apiUrl, apiKey } = getProviderConfig(provider);
   if (!apiKey) {
     return NextResponse.json(
       { error: 'AI API key not configured.' },
@@ -72,14 +73,15 @@ export async function GET(req: NextRequest) {
   for (const task of dueTasks) {
     const startTime = Date.now();
     try {
-      const aiResponse = await fetch(API_URL, {
+      const model = mapModelForProvider(task.model || 'anthropic/claude-opus-4.6', provider);
+      const aiResponse = await fetch(apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          model: task.model || 'anthropic/claude-opus-4.6',
+          model,
           messages: [
             { role: 'system', content: CRON_SYSTEM_PROMPT },
             { role: 'user', content: task.prompt },

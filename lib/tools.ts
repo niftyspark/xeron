@@ -1,7 +1,7 @@
 /**
  * Server-side tool registry for the chat agent.
  *
- * The AI model (via 4everland's OpenAI-compatible chat-completions endpoint)
+ * The AI model (via Groq's OpenAI-compatible chat-completions endpoint)
  * receives the `definitions` array as its `tools` parameter and can choose to
  * emit a `tool_calls` array instead of a plain assistant message. When that
  * happens, /api/ai/chat intercepts the interrupt, runs the named tool via

@@ -2,7 +2,6 @@ import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
 import { Toaster } from 'sonner';
-import { ThemeManager } from '@/app/components/ThemeManager';
 
 const inter = Inter({
   subsets: ['latin'],
@@ -23,7 +22,6 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body className={`${inter.variable} font-sans antialiased bg-[#0a0a0f] text-white min-h-screen`}>
-        <ThemeManager />
         {children}
         <Toaster
           position="bottom-right"

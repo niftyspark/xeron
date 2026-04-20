@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { eq } from 'drizzle-orm';
 import { getSkillSystemPrompt } from '@/lib/skills';
 import { requireAuth, withErrors } from '@/lib/api-guard';
-import { getRelevantMemories, streamChatWithTools } from '@/lib/ai';
+import { getRelevantMemories, streamChatWithTools, type AIProvider } from '@/lib/ai';
 import { badRequest, serviceUnavailable } from '@/lib/errors';
 import {
   ChatRequestSchema,
@@ -41,11 +41,8 @@ export const POST = withErrors(async (req: NextRequest) => {
   const body = await req.json().catch(() => null);
   const parsed = ChatRequestSchema.safeParse(body);
   if (!parsed.success) throw badRequest('Invalid chat payload.');
-  const { messages, model = 'anthropic/claude-opus-4.7', temperature = 0.7 } =
+  const { messages, model = 'llama-3.3-70b-versatile', temperature = 0.7 } =
     parsed.data;
-
-  const apiKey = process.env.FOUR_EVER_LAND_API_KEY;
-  if (!apiKey) throw serviceUnavailable('AI is not configured on the server.');
 
   // ── Load preferences (single DB round-trip, reuses the auth user row). ──
   let preferences: UserPreferences;
@@ -64,6 +61,9 @@ export const POST = withErrors(async (req: NextRequest) => {
     console.warn('[chat] preferences load failed, using defaults:', err);
     preferences = DEFAULT_USER_PREFERENCES;
   }
+
+  // Get provider from user preferences, default to groq
+  const provider: AIProvider = preferences.provider;
 
   // ── Memories (only if the user opted in). ──
   let memoriesBlock = '';
@@ -111,7 +111,7 @@ export const POST = withErrors(async (req: NextRequest) => {
   ];
 
   return await streamChatWithTools({
-    apiKey,
+    provider,
     model,
     temperature,
     messages: enhancedMessages,

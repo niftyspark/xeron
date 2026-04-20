@@ -4,8 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth, withErrors } from '@/lib/api-guard';
 import { badRequest, serviceUnavailable } from '@/lib/errors';
 import { CodeAgentSchema } from '@/lib/validators';
-
-const API_URL = 'https://ai.api.4everland.org/api/v1/chat/completions';
+import { getProviderConfig, mapModelForProvider, type AIProvider } from '@/lib/ai';
 
 type Action = 'generate' | 'edit' | 'fix' | 'explain';
 
@@ -96,22 +95,25 @@ export const POST = withErrors(async (req: NextRequest) => {
     action = 'generate',
   } = parsed.data;
 
-  const apiKey = process.env.FOUR_EVER_LAND_API_KEY;
+  const provider: AIProvider = 'groq';
+  const { apiUrl, apiKey } = getProviderConfig(provider);
   if (!apiKey) throw serviceUnavailable('AI is not configured.');
+
+  const model = mapModelForProvider('anthropic/claude-opus-4.6', provider);
 
   const messages = [
     { role: 'system', content: buildSystemPrompt(action, framework) },
     { role: 'user', content: buildUserMessage(prompt, files, action) },
   ];
 
-  const upstream = await fetch(API_URL, {
+  const upstream = await fetch(apiUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: 'anthropic/claude-opus-4.6',
+      model,
       messages,
       temperature: 0.3,
       top_p: 1,

@@ -15,7 +15,7 @@
  *    verbatim, accepting the upstream-moderation / policy risk documented in
  *    audit finding #10.
  *
- *    Consequence: 4everland / OpenRouter / Anthropic provider-side policy
+ *    Consequence: Groq / OpenRouter / Anthropic provider-side policy
  *    classifiers MAY downrank or soft-block generations that echo these
  *    themes. If you see an uptick in 400/403 responses from /api/ai/chat,
  *    the first suspect is this prompt. Consider swapping to the "strip

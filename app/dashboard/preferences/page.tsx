@@ -14,6 +14,7 @@ import {
   Zap,
   FileText,
   RotateCcw,
+  Server,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { BUILTIN_SKILLS } from '@/lib/skills';
@@ -32,6 +33,7 @@ import { BUILTIN_SKILLS } from '@/lib/skills';
  */
 
 interface Preferences {
+  provider: 'groq';
   memoryEnabled: boolean;
   toolsEnabled: {
     web_search: boolean;
@@ -42,6 +44,7 @@ interface Preferences {
 }
 
 const DEFAULTS: Preferences = {
+  provider: 'groq',
   memoryEnabled: true,
   toolsEnabled: { web_search: true, analyze_image: true },
   enabledSkillIds: [],
@@ -129,6 +132,7 @@ export default function PreferencesPage() {
         setPrefs({
           ...DEFAULTS,
           ...data,
+          provider: data.provider ?? 'groq',
           toolsEnabled: { ...DEFAULTS.toolsEnabled, ...(data.toolsEnabled ?? {}) },
           enabledSkillIds: data.enabledSkillIds ?? [],
           customSystemPrompt: data.customSystemPrompt ?? '',
@@ -229,6 +233,31 @@ export default function PreferencesPage() {
           Save
         </Button>
       </div>
+
+      {/* ── Provider ─────────────────────────────────────────────────────── */}
+      <motion.section
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="space-y-3 mb-8"
+      >
+        <h2 className="text-sm font-semibold text-white/70 uppercase tracking-wide">
+          AI Provider
+        </h2>
+        <p className="text-xs text-white/40 mb-3">
+          Using Groq for fast, free inference.
+        </p>
+        <div className="p-4 rounded-xl border border-blue-500/20 bg-blue-500/5">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0 bg-blue-500/20 text-blue-400">
+              <Server className="w-4 h-4" />
+            </div>
+            <div>
+              <p className="text-sm text-white font-medium">Groq</p>
+              <p className="text-xs text-white/40">Free tier, fast inference</p>
+            </div>
+          </div>
+        </div>
+      </motion.section>
 
       {/* ── Memory ───────────────────────────────────────────────── */}
       <motion.section

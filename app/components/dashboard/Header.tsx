@@ -5,7 +5,6 @@ import { useUI } from '@/app/store/useUI';
 import { useUser } from '@/app/store/useUser';
 import { Menu, Search, Command, LogOut } from 'lucide-react';
 import { Button } from '@/app/components/ui/button';
-import { ThemeToggle } from './ThemeToggle';
 import { UserProfile } from './UserProfile';
 import { authFetch } from '@/lib/client-auth';
 
@@ -74,7 +73,6 @@ export function Header() {
           </kbd>
         </Button>
 
-        <ThemeToggle />
         <UserProfile />
 
         <button

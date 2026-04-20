@@ -14,10 +14,38 @@ import {
  * owns its own prompt + stream logic and is the single source of truth.
  */
 
-const API_URL = 'https://ai.api.4everland.org/api/v1/chat/completions';
+const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
 /** Hard cap to prevent runaway tool loops (also limits provider cost). */
 const MAX_TOOL_ROUNDS = 4;
+
+export type AIProvider = 'groq';
+
+export function getProviderConfig(provider: AIProvider) {
+  switch (provider) {
+    case 'groq':
+      return {
+        apiUrl: GROQ_API_URL,
+        apiKey: process.env.GROQ_API_KEY,
+      };
+  }
+}
+
+/** Map provider-agnostic model IDs to Groq models. */
+export function mapModelForProvider(model: string, _provider: AIProvider): string {
+  const modelMap: Record<string, string> = {
+    'anthropic/claude-opus-4.6': 'llama-3.3-70b-versatile',
+    'anthropic/claude-opus-4.7': 'llama-3.3-70b-versatile',
+    'anthropic/claude-sonnet-4': 'llama-3.3-70b-versatile',
+    'anthropic/claude-3.5-haiku': 'llama-3.1-8b-instant',
+    'anthropic/claude-3-haiku': 'llama-3.1-8b-instant',
+    'openai/gpt-4o': 'llama-3.3-70b-versatile',
+    'openai/gpt-4o-mini': 'llama-3.1-8b-instant',
+    'openai/gpt-4-turbo': 'llama-3.3-70b-versatile',
+  };
+
+  return modelMap[model] || 'llama-3.3-70b-versatile';
+}
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
@@ -57,7 +85,7 @@ export async function extractMemories(
   conversationId: string,
   messages: ChatMessage[],
 ): Promise<void> {
-  const apiKey = process.env.FOUR_EVER_LAND_API_KEY;
+  const { apiUrl, apiKey } = getProviderConfig('groq');
   if (!apiKey) return;
 
   const extractionPrompt = messages.map((m) => `${m.role}: ${m.content}`).join('\n');
@@ -73,14 +101,14 @@ Only extract information that is specific and actionable. Return empty array if 
 
   let response: Response;
   try {
-    response = await fetch(API_URL, {
+    response = await fetch(apiUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: 'anthropic/claude-opus-4.6',
+        model: 'llama-3.3-70b-versatile',
         messages: extractionMessages,
         temperature: 0.3,
         max_tokens: 1000,
@@ -184,7 +212,7 @@ interface WireMessage {
 }
 
 interface StreamChatWithToolsOptions {
-  apiKey: string;
+  provider: AIProvider;
   model: string;
   temperature: number;
   messages: WireMessage[];
@@ -218,7 +246,14 @@ interface StreamChatWithToolsOptions {
 export async function streamChatWithTools(
   opts: StreamChatWithToolsOptions,
 ): Promise<Response> {
-  const { apiKey, model, temperature, signal } = opts;
+  const { provider, model, temperature, signal } = opts;
+  const { apiUrl, apiKey } = getProviderConfig(provider);
+  
+  if (!apiKey) {
+    throw new Error(`Provider ${provider} is not configured on the server.`);
+  }
+
+  const mappedModel = mapModelForProvider(model, provider);
   const messages: WireMessage[] = [...opts.messages];
 
   // Resolve tools: explicit array wins, otherwise full registry.
@@ -233,14 +268,14 @@ export async function streamChatWithTools(
     // have content to stream back.
     const lastRound = round === MAX_TOOL_ROUNDS;
 
-    const res = await fetch(API_URL, {
+    const res = await fetch(apiUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model,
+        model: mappedModel,
         messages,
         temperature,
         top_p: 1,
