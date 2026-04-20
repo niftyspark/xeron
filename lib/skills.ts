@@ -302,8 +302,10 @@ export function getSkillSystemPrompt(skillIds?: string[]): string {
   const wanted = new Set(skillIds);
   const active = BUILTIN_SKILLS.filter((s) => wanted.has(s.id));
   if (active.length === 0) return '';
+  // Returned as a standalone block; lib/character.composeSystemPrompt()
+  // handles the inter-section spacing.
   return (
-    '\n\n## YOUR ACTIVE SKILLS:\n' +
+    '## Your active skills\n' +
     active.map((s) => `- **${s.name}**: ${s.systemPrompt}`).join('\n')
   );
 }

@@ -6,15 +6,17 @@ import { requireAuth, withErrors } from '@/lib/api-guard';
 import { getRelevantMemories } from '@/lib/ai';
 import { badRequest, serviceUnavailable } from '@/lib/errors';
 import { ChatRequestSchema } from '@/lib/validators';
+import { composeSystemPrompt } from '@/lib/character';
 
 const API_URL = 'https://ai.api.4everland.org/api/v1/chat/completions';
 
 /**
  * POST /api/ai/chat
  *
- * Audit #10 addressed: the jailbreak system prompt has been replaced with a
- * production-appropriate persona. The upstream provider's safety policies are
- * followed; any "ignore safety" language has been removed.
+ * The system prompt is now sourced from the Xeron character definition
+ * (lib/character.ts) rather than a generic "helpful assistant" base.
+ * Memories and user-enabled skills are still dynamically composed in
+ * via composeSystemPrompt().
  */
 export const POST = withErrors(async (req: NextRequest) => {
   const auth = await requireAuth(req);
@@ -30,38 +32,26 @@ export const POST = withErrors(async (req: NextRequest) => {
   if (!apiKey) throw serviceUnavailable('AI is not configured on the server.');
 
   // Load user memories, degraded-mode if DB is unreachable.
-  let memoriesContext = '';
+  let memoriesBlock = '';
   try {
     const memories = await getRelevantMemories(auth.userId, '', 10);
     if (memories.length > 0) {
-      memoriesContext =
-        '\n\n## PERSISTENT MEMORIES ABOUT THIS USER:\n' +
-        memories.map((m) => `- [${m.category}] ${m.content}`).join('\n') +
-        '\n\nUse these memories to personalise your responses when relevant.';
+      memoriesBlock =
+        '## Persistent memories about this user\n' +
+        memories.map((m) => `- [${m.category}] ${m.content}`).join('\n');
     }
   } catch (err) {
     console.warn('[chat] memory load failed:', err);
   }
 
-  const basePrompt = `You are XERON, a helpful, honest autonomous AI assistant.
+  // Honor user-enabled skillIds (audit #26). Returns empty string if none.
+  const skillsBlock = getSkillSystemPrompt(skills);
 
-## Your Capabilities
-- Persistent memory across conversations
-- Multi-step reasoning and task execution
-- 500+ app integrations via Composio (GitHub, Slack, Notion, Gmail, etc.)
-
-## Guidelines
-- Follow your provider's safety policies and applicable laws.
-- Be proactive and suggest next actions when appropriate.
-- Remember and reference details about the user from your memories.
-- Break complex tasks into manageable steps and show your reasoning.
-- Decline clearly and briefly if a request is unsafe or outside policy.${memoriesContext}`;
-
-  // Honor skillIds (previously ignored — audit #26).
-  const skillPrompt = getSkillSystemPrompt(skills);
+  // Compose: persona (static) + memories (dynamic) + skills (dynamic).
+  const systemPrompt = composeSystemPrompt(memoriesBlock, skillsBlock);
 
   const enhancedMessages = [
-    { role: 'system' as const, content: basePrompt + skillPrompt },
+    { role: 'system' as const, content: systemPrompt },
     ...messages.filter((m) => m.role !== 'system'),
   ];
 

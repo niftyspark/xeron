@@ -3,8 +3,19 @@ import { db, schema } from '@/lib/db';
 import { eq, lte, and } from 'drizzle-orm';
 import { computeNextRun } from '@/lib/cron';
 import { safeEquals } from '@/lib/encryption';
+import { XERON_SYSTEM_PROMPT } from '@/lib/character';
 
 const API_URL = 'https://ai.api.4everland.org/api/v1/chat/completions';
+
+/**
+ * System prompt for scheduled-task executions. Built once at module load.
+ * Layers the Xeron persona with task-specific guidance so cron jobs produce
+ * concrete, structured output instead of free-form chat.
+ */
+const CRON_SYSTEM_PROMPT = `${XERON_SYSTEM_PROMPT}
+
+## Scheduled task execution context
+You are now executing an automated scheduled task on the user's behalf, not chatting with them directly. Be concise and accurate. Complete the task and return a clear, structured result. Avoid filler commentary.`;
 
 /**
  * Vercel Cron dispatcher.
@@ -70,11 +81,7 @@ export async function GET(req: NextRequest) {
         body: JSON.stringify({
           model: task.model || 'anthropic/claude-opus-4.6',
           messages: [
-            {
-              role: 'system',
-              content:
-                'You are XERON, an autonomous AI agent executing a scheduled task. Complete the task concisely and accurately.',
-            },
+            { role: 'system', content: CRON_SYSTEM_PROMPT },
             { role: 'user', content: task.prompt },
           ],
           temperature: 0.7,
