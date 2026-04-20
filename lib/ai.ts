@@ -1,4 +1,9 @@
 import { db, schema } from './db';
+import {
+  TOOL_DEFINITIONS,
+  executeTool,
+  type ToolCallRequest,
+} from './tools';
 
 /**
  * Shared AI types and DB-side helpers.
@@ -9,6 +14,9 @@ import { db, schema } from './db';
  */
 
 const API_URL = 'https://ai.api.4everland.org/api/v1/chat/completions';
+
+/** Hard cap to prevent runaway tool loops (also limits provider cost). */
+const MAX_TOOL_ROUNDS = 4;
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
@@ -151,4 +159,191 @@ Only extract information that is specific and actionable. Return empty array if 
       console.warn('[extractMemories] insert failed', err);
     }
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tool-calling chat loop
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * A wire-format message as we hand it back to the provider. Keeps `tool_calls`
+ * and `tool_call_id` optional so we can mix assistant-with-tools, tool-result,
+ * and plain messages in one array.
+ */
+interface WireMessage {
+  role: 'system' | 'user' | 'assistant' | 'tool';
+  content: string | null;
+  tool_calls?: Array<{
+    id: string;
+    type: 'function';
+    function: { name: string; arguments: string };
+  }>;
+  tool_call_id?: string;
+  name?: string;
+}
+
+interface StreamChatWithToolsOptions {
+  apiKey: string;
+  model: string;
+  temperature: number;
+  messages: WireMessage[];
+  signal: AbortSignal;
+}
+
+/**
+ * Runs a chat completion with tool-calling support, then returns a streamed
+ * Response of the FINAL assistant answer.
+ *
+ * Flow:
+ *  1. Non-streaming completion with `tools: TOOL_DEFINITIONS`.
+ *  2. If the model returned `tool_calls`, execute each one in parallel,
+ *     append the assistant+tool messages to the conversation, and loop.
+ *  3. Bounded by MAX_TOOL_ROUNDS.
+ *  4. Once the model returns plain content (no tool_calls), replay that
+ *     content as an SSE stream in the OpenAI chat-completion chunk format,
+ *     so the existing client-side reader in useStreaming.ts works unchanged.
+ *
+ * We intentionally do NOT stream the intermediate tool-call rounds to the
+ * client — the user would see partial JSON chunks. Intermediate rounds are
+ * non-streamed; only the final response is streamed.
+ */
+export async function streamChatWithTools(
+  opts: StreamChatWithToolsOptions,
+): Promise<Response> {
+  const { apiKey, model, temperature, signal } = opts;
+  const messages: WireMessage[] = [...opts.messages];
+
+  let finalContent = '';
+
+  for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
+    // Round 0 is the first call; subsequent rounds happen only if the prior
+    // response contained tool_calls. The final round MUST be stop-type so we
+    // have content to stream back.
+    const lastRound = round === MAX_TOOL_ROUNDS;
+
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages,
+        temperature,
+        top_p: 1,
+        stream: false,
+        // On the last round, force the model to answer without calling tools.
+        tools: lastRound ? undefined : TOOL_DEFINITIONS,
+        tool_choice: lastRound ? undefined : 'auto',
+      }),
+      signal,
+    });
+
+    if (!res.ok) {
+      const errText = (await res.text().catch(() => '')).slice(0, 500);
+      console.error('[chat] provider error', res.status, errText);
+      throw new Error(`Provider ${res.status}: ${errText}`);
+    }
+
+    const data = (await res.json()) as {
+      choices?: Array<{
+        message?: {
+          role?: string;
+          content?: string | null;
+          tool_calls?: Array<{
+            id: string;
+            type: 'function';
+            function: { name: string; arguments: string };
+          }>;
+        };
+        finish_reason?: string;
+      }>;
+    };
+
+    const choice = data.choices?.[0];
+    const msg = choice?.message;
+    if (!msg) throw new Error('Provider returned no message.');
+
+    const toolCalls = msg.tool_calls ?? [];
+
+    // No tool calls → we have the final answer.
+    if (toolCalls.length === 0) {
+      finalContent = msg.content ?? '';
+      break;
+    }
+
+    if (lastRound) {
+      // Model still wants to call tools on the last allowed round — force
+      // it to settle with whatever content it gave.
+      finalContent =
+        msg.content ??
+        'I reached the tool-call limit without producing a final answer. Please try rephrasing.';
+      break;
+    }
+
+    // Append the assistant's tool-call turn to the transcript.
+    messages.push({
+      role: 'assistant',
+      content: msg.content ?? null,
+      tool_calls: toolCalls,
+    });
+
+    // Execute every requested tool in parallel. executeTool() never throws.
+    console.log(
+      `[chat] round ${round}: executing ${toolCalls.length} tool call(s):`,
+      toolCalls.map((c) => c.function.name).join(', '),
+    );
+
+    const toolRequests: ToolCallRequest[] = toolCalls.map((c) => ({
+      id: c.id,
+      name: c.function.name,
+      rawArguments: c.function.arguments,
+    }));
+    const results = await Promise.all(
+      toolRequests.map((r) => executeTool(r, signal)),
+    );
+
+    // Append each tool result as a separate `tool` role message.
+    for (const r of results) {
+      messages.push({
+        role: 'tool',
+        content: r.content,
+        tool_call_id: r.toolCallId,
+        name: r.name,
+      });
+    }
+  }
+
+  // Stream the final content back in OpenAI chat-completion chunk format so
+  // the existing client reader (useStreaming.ts) parses it unchanged.
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    start(controller) {
+      // Send the content in reasonably-sized chunks so the UI animates
+      // instead of dropping the whole answer at once. Character-level chunking
+      // is wasteful; paragraph chunks are too coarse. 64-char chunks strike a
+      // balance without adding artificial delays.
+      const chunkSize = 64;
+      let offset = 0;
+      while (offset < finalContent.length) {
+        const piece = finalContent.slice(offset, offset + chunkSize);
+        offset += chunkSize;
+        const payload = {
+          choices: [{ delta: { content: piece } }],
+        };
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
+      }
+      controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+      controller.close();
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+    },
+  });
 }
