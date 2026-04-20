@@ -262,17 +262,37 @@ export const useChat = create<ChatState>()(
             content: string;
             createdAt: string;
           }>;
-          const messages: ChatMessage[] = db.map((m) => ({
+          const serverMessages: ChatMessage[] = db.map((m) => ({
             id: m.id,
             role: m.role as 'system' | 'user' | 'assistant',
             content: m.content,
             createdAt: new Date(m.createdAt),
             isStreaming: false,
           }));
+
+          // MERGE, don't overwrite. Preserve any locally-added message that
+          // the server does not yet know about — specifically any message
+          // that is currently streaming (assistant turn in progress) or that
+          // is a client-issued UUID which hasn't been persisted yet.
+          // Without this merge, calling loadMessages() while a stream is
+          // live wipes the in-flight assistant bubble.
           set((s) => ({
-            conversations: s.conversations.map((c) =>
-              c.id === conversationId ? { ...c, messages } : c,
-            ),
+            conversations: s.conversations.map((c) => {
+              if (c.id !== conversationId) return c;
+              const serverIds = new Set(serverMessages.map((m) => m.id));
+              const localOnly = c.messages.filter(
+                (m) =>
+                  !serverIds.has(m.id) &&
+                  (m.isStreaming ||
+                    m.role === 'assistant' ||
+                    // Preserve very recent user messages that may be in-flight
+                    // to the server (saveMessage POST not yet landed).
+                    Date.now() - new Date(m.createdAt).getTime() < 30_000),
+              );
+              // Server messages come chronologically sorted (ASC). Append
+              // local-only messages at the end — they are newer by construction.
+              return { ...c, messages: [...serverMessages, ...localOnly] };
+            }),
           }));
         } catch {
           /* ignore */

@@ -89,7 +89,6 @@ export function ChatInterface() {
         const newConv = await createConversation(title, currentModel);
         if (newConv) {
           convId = newConv.id;
-          loadedConvRef.current.add(convId);
         } else {
           // Offline fallback — server reachable but DB insert failed.
           convId = crypto.randomUUID();
@@ -102,8 +101,14 @@ export function ChatInterface() {
             createdAt: new Date(),
             updatedAt: new Date(),
           });
-          loadedConvRef.current.add(convId);
         }
+        // CRITICAL: mark this convo as already-loaded BEFORE the
+        // activeConversationId effect fires on the next render. Otherwise
+        // loadMessages() would race against the streaming assistant turn and
+        // overwrite the in-flight message with whatever the server currently
+        // has (which is just the user message — the assistant isn't
+        // persisted until streaming completes).
+        loadedConvRef.current.add(convId);
       }
 
       // Build user content + metadata.
