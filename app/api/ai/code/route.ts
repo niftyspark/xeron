@@ -96,7 +96,8 @@ export const POST = withErrors(async (req: NextRequest) => {
   } = parsed.data;
 
   const provider: AIProvider = 'groq';
-  const { apiUrl, apiKey } = getProviderConfig(provider);
+  const { url: apiUrl, key: apiKey } = getProviderConfig(provider);
+
   if (!apiKey) throw serviceUnavailable('AI is not configured.');
 
   const model = mapModelForProvider('anthropic/claude-opus-4.6', provider);
