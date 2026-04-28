@@ -45,7 +45,8 @@ export async function GET(req: NextRequest) {
 
   // Use Groq for scheduled tasks
   const provider: AIProvider = 'groq';
-  const { apiUrl, apiKey } = getProviderConfig(provider);
+   const { url: apiUrl, key: apiKey } = getProviderConfig(provider);
+
   if (!apiKey) {
     return NextResponse.json(
       { error: 'AI API key not configured.' },
