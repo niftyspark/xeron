@@ -147,7 +147,7 @@ export const ALL_MODELS: ModelDefinition[] = [
 ];
 
 
-export const DEFAULT_MODEL = 'anthropic/claude-opus-4.6';
+export const DEFAULT_MODEL = 'llama-3.3-70b-versatile';
 export const APP_NAME = 'XERON';
 export const APP_DESCRIPTION = 'Your Decentralized Autonomous AI Agent';
 export const BASE_CHAIN_ID = 8453;

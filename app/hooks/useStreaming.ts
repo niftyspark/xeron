@@ -4,14 +4,6 @@ import { useCallback, useRef, useState } from 'react';
 import { useChat } from '@/app/store/useChat';
 import { authFetch } from '@/lib/client-auth';
 
-/**
- * Hook that wraps the streaming chat fetch.
- *
- * Correctness fixes:
- *  - Client auth via httpOnly cookie — no localStorage token reads.
- *  - Reader is released on all paths (success, error, abort).
- *  - Abort flows through to upstream via the fetch signal.
- */
 export function useStreaming() {
   const [isStreaming, setIsStreaming] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -37,14 +29,18 @@ export function useStreaming() {
           signal: abortControllerRef.current.signal,
         });
 
+        console.log('[streaming] Response status:', response.status);
+
         if (!response.ok) {
           const errText = await response.text().catch(() => '');
+          console.log('[streaming] Error response:', errText);
           updateMessage(conversationId, messageId, `Error: ${errText || response.statusText}`);
           return;
         }
 
         reader = response.body?.getReader() ?? null;
         if (!reader) {
+          console.log('[streaming] No reader available');
           updateMessage(conversationId, messageId, 'Error: No response stream');
           return;
         }
@@ -69,13 +65,18 @@ export function useStreaming() {
                 choices?: { delta?: { content?: string } }[];
               };
               const content = parsed.choices?.[0]?.delta?.content;
-              if (content) appendToMessage(conversationId, messageId, content);
+              if (content) {
+                console.log('[streaming] Chunk received:', content.slice(0, 50));
+                appendToMessage(conversationId, messageId, content);
+              }
             } catch {
-              /* skip malformed chunk */
+              console.log('[streaming] Failed to parse chunk:', data.slice(0, 100));
             }
           }
         }
+        console.log('[streaming] Stream complete');
       } catch (err) {
+        console.log('[streaming] Catch error:', err);
         if ((err as { name?: string })?.name !== 'AbortError') {
           updateMessage(
             conversationId,

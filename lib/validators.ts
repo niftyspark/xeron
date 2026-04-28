@@ -62,7 +62,7 @@ export const GoogleAuthSchema = z
 export const ConversationCreateSchema = z
   .object({
     title: ShortText.optional().transform((v) => (v?.length ? v : 'New Conversation')),
-    model: ModelId.optional().transform((v) => v ?? 'anthropic/claude-opus-4.6'),
+    model: ModelId.optional().transform((v) => v ?? 'llama-3.3-70b-versatile'),
   })
   .strict();
 
@@ -111,7 +111,7 @@ export const TaskCreateSchema = z
     name: ShortText,
     description: z.string().trim().max(2000).optional().default(''),
     prompt: z.string().trim().min(1).max(8000),
-    model: ModelId.optional().transform((v) => v ?? 'anthropic/claude-opus-4.6'),
+    model: ModelId.optional().transform((v) => v ?? 'llama-3.3-70b-versatile'),
     cronExpression: CronSchema,
     timezone: TimezoneSchema.optional().default('UTC'),
   })
@@ -161,7 +161,7 @@ export const LearningCreateSchema = z
  */
 export const UserPreferencesSchema = z
   .object({
-    provider: z.literal('groq').default('groq'),
+    provider: z.enum(['groq', 'openai', 'cloudflare', 'huggingface', 'openrouter']).default('groq'),
     memoryEnabled: z.boolean().default(true),
     toolsEnabled: z
       .object({

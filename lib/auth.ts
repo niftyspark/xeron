@@ -23,6 +23,11 @@ export const AUTH_COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
 function loadSecret(): Uint8Array {
   const raw = process.env.JWT_SECRET;
   if (!raw || raw.length < MIN_SECRET_LENGTH) {
+    // Dev mode fallback - only use in development
+    if (process.env.NODE_ENV === 'development') {
+      console.warn('[auth] Using dev mode fallback JWT_SECRET');
+      return new TextEncoder().encode('dev-mode-fallback-secret-key-32ch!');
+    }
     throw new CriticalConfigError(
       `JWT_SECRET must be set and at least ${MIN_SECRET_LENGTH} characters. ` +
         `Generate with: openssl rand -hex 32`,

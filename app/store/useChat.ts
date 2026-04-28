@@ -93,7 +93,7 @@ export const useChat = create<ChatState>()(
       conversations: [],
       activeConversationId: null,
       isStreaming: false,
-      currentModel: 'anthropic/claude-opus-4.6',
+      currentModel: 'llama-3.3-70b-versatile',
       conversationsLoaded: false,
 
       setConversations: (conversations) => set({ conversations }),
@@ -236,7 +236,7 @@ export const useChat = create<ChatState>()(
           const conversations: Conversation[] = db.map((c) => ({
             id: c.id,
             title: c.title || 'Untitled',
-            model: c.model || 'anthropic/claude-opus-4.6',
+            model: c.model || 'llama-3.3-70b-versatile',
             messages: [], // fetched on demand via loadMessages
             isPinned: c.isPinned ?? false,
             createdAt: new Date(c.createdAt),

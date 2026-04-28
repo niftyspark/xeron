@@ -65,11 +65,22 @@ export function readToken(req: NextRequest): string | null {
 export async function requireAuth(
   req: NextRequest,
 ): Promise<AuthContext | NextResponse> {
+  // Dev mode bypass - skip DB check in development
+  if (!isDbAvailable() && process.env.NODE_ENV === 'development') {
+    return { userId: 'dev-user', walletAddress: '' };
+  }
+
   if (!isDbAvailable()) {
     return serviceUnavailable('Service temporarily unavailable. Please try again.').toResponse();
   }
 
   const token = readToken(req);
+  
+  // Dev mode bypass - allow requests without token in development
+  if (!token && process.env.NODE_ENV === 'development') {
+    return { userId: 'dev-user', walletAddress: '' };
+  }
+  
   if (!token) return unauthorized('Please sign in first.').toResponse();
 
   const payload = await verifyToken(token);

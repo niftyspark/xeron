@@ -73,7 +73,7 @@ export async function GET(req: NextRequest) {
   for (const task of dueTasks) {
     const startTime = Date.now();
     try {
-      const model = mapModelForProvider(task.model || 'anthropic/claude-opus-4.6', provider);
+      const model = mapModelForProvider(task.model || 'llama-3.3-70b-versatile', provider);
       const aiResponse = await fetch(apiUrl, {
         method: 'POST',
         headers: {

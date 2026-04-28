@@ -19,7 +19,7 @@ export default function TasksPage() {
     description: '',
     prompt: '',
     cronExpression: '0 9 * * *',
-    model: 'anthropic/claude-opus-4.6',
+    model: 'llama-3.3-70b-versatile',
     timezone: 'UTC',
     isActive: true,
   });
@@ -33,7 +33,7 @@ export default function TasksPage() {
     const result = await createTask(form);
     if (result) {
       setShowCreate(false);
-      setForm({ name: '', description: '', prompt: '', cronExpression: '0 9 * * *', model: 'anthropic/claude-opus-4.6', timezone: 'UTC', isActive: true });
+      setForm({ name: '', description: '', prompt: '', cronExpression: '0 9 * * *', model: 'llama-3.3-70b-versatile', timezone: 'UTC', isActive: true });
     }
   };
 

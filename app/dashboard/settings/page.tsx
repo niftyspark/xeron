@@ -11,10 +11,49 @@ import { useUI } from '@/app/store/useUI';
 import { toast } from 'sonner';
 import {
   User, Palette, Database, Shield, ExternalLink,
-  Save, Check, Zap, Crown, Rocket, Loader2,
+  Save, Check, Zap, Crown, Rocket, Loader2, Cpu, Key, Globe, Cloud, Sparkles,
 } from 'lucide-react';
-import { PLANS } from '@/lib/integrations';
 import { authFetch } from '@/lib/client-auth';
+
+const AI_PROVIDERS = [
+  { id: 'groq', name: 'Groq', icon: Sparkles, desc: 'Fast inference, free tier', color: 'from-orange-500 to-red-500' },
+  { id: 'openai', name: 'OpenAI', icon: Cpu, desc: 'GPT-4o, GPT-4o Mini', color: 'from-green-500 to-emerald-500' },
+  { id: 'cloudflare', name: 'Cloudflare', icon: Cloud, desc: 'Workers AI, Llama models', color: 'from-orange-400 to-yellow-500' },
+  { id: 'huggingface', name: 'HuggingFace', icon: Globe, desc: 'Open source models', color: 'from-blue-400 to-orange-500' },
+  { id: 'openrouter', name: 'OpenRouter', icon: Globe, desc: '140+ models unified', color: 'from-purple-500 to-pink-500' },
+  { id: 'jan', name: 'Jan.ai (Local)', icon: Cpu, desc: 'Local LLM via llama.cpp', color: 'from-cyan-500 to-blue-500' },
+];
+
+const PROVIDER_MODELS: Record<string, Array<{ id: string; name: string }>> = {
+  groq: [
+    { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B Versatile' },
+    { id: 'llama-3.1-70b-versatile', name: 'Llama 3.1 70B' },
+    { id: 'llama-3.1-8b-instant', name: 'Llama 3.1 8B Instant' },
+  ],
+  openai: [
+    { id: 'gpt-4o', name: 'GPT-4o' },
+    { id: 'gpt-4o-mini', name: 'GPT-4o Mini' },
+    { id: 'gpt-4-turbo', name: 'GPT-4 Turbo' },
+  ],
+  cloudflare: [
+    { id: '@cf/meta/llama-3.1-70b-instruct', name: 'Llama 3.1 70B' },
+    { id: '@cf/meta/llama-3.1-8b-instruct', name: 'Llama 3.1 8B' },
+  ],
+  huggingface: [
+    { id: 'meta-llama/Llama-3.1-70B-Instruct', name: 'Llama 3.1 70B' },
+    { id: 'meta-llama/Llama-3.1-8B-Instruct', name: 'Llama 3.1 8B' },
+  ],
+  openrouter: [
+    { id: 'openai/gpt-4o', name: 'GPT-4o' },
+    { id: 'openai/gpt-4o-mini', name: 'GPT-4o Mini' },
+    { id: 'anthropic/claude-4-opus', name: 'Claude 4 Opus' },
+  ],
+  jan: [
+    { id: 'llama-3.1-8b-instant', name: 'Llama 3.1 8B Instant' },
+    { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B Versatile' },
+    { id: 'Vikhr-Llama-3.2-1B-Instruct-abliterated.Q4_K_M.gguf', name: 'Vikhr Llama 3.2 1B' },
+  ],
+};
 
 export default function SettingsPage() {
   const { walletAddress, displayName, isAuthenticated, clear, setUser, userId } = useUser();
@@ -23,6 +62,9 @@ export default function SettingsPage() {
 
   const [name, setName] = useState(displayName || '');
   const [saving, setSaving] = useState(false);
+  const [selectedProvider, setSelectedProvider] = useState('groq');
+  const [selectedModel, setSelectedModel] = useState('llama-3.3-70b-versatile');
+  const [savingProvider, setSavingProvider] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [clearingMemories, setClearingMemories] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
@@ -36,8 +78,6 @@ export default function SettingsPage() {
         json: { displayName: name },
       });
       if (res.ok) {
-        // Refresh the user-store displayName so the header reflects the change
-        // immediately (audit #58).
         if (userId && walletAddress) {
           setUser({ userId, walletAddress, displayName: name });
         }
@@ -49,6 +89,32 @@ export default function SettingsPage() {
       toast.error('Error saving profile');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSaveProvider = async () => {
+    if (!isAuthenticated) return;
+    setSavingProvider(true);
+    try {
+      const res = await fetch('/api/ai/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [{ role: 'user', content: 'test' }],
+          model: selectedModel,
+        }),
+      });
+
+      if (res.ok) {
+        toast.success(`Connected to ${selectedProvider}`);
+      } else {
+        const error = await res.text();
+        toast.error(`Failed: ${error.slice(0, 100)}`);
+      }
+    } catch {
+      toast.error('Error connecting to provider');
+    } finally {
+      setSavingProvider(false);
     }
   };
 
@@ -128,7 +194,6 @@ export default function SettingsPage() {
     try {
       const res = await authFetch('/api/user', { method: 'DELETE' });
       if (res.ok) {
-        // Server has already cleared the auth cookie. Purge local state too.
         clear();
         try {
           localStorage.removeItem('xeron-user');
@@ -164,10 +229,124 @@ export default function SettingsPage() {
       </div>
 
       <div className="space-y-8">
+        {/* AI Provider Settings */}
+        <motion.section
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="p-6 rounded-2xl glass"
+        >
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center">
+              <Cpu className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-white">AI Provider</h2>
+              <p className="text-xs text-white/40">Select your preferred AI model</p>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            {/* Provider Selection */}
+            <div>
+              <label className="text-sm text-white/60 mb-2 block">Provider</label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                {AI_PROVIDERS.map((provider) => {
+                  const Icon = provider.icon;
+                  const isSelected = selectedProvider === provider.id;
+                  return (
+                    <button
+                      key={provider.id}
+                      onClick={() => {
+                        setSelectedProvider(provider.id);
+                        const models = PROVIDER_MODELS[provider.id];
+                        if (models && models.length > 0) {
+                          setSelectedModel(models[0].id);
+                        }
+                      }}
+                      className={`relative p-4 rounded-xl border transition-all text-left ${
+                        isSelected
+                          ? 'border-blue-500/50 bg-blue-500/10'
+                          : 'border-white/10 glass hover:border-white/20'
+                      }`}
+                    >
+                      {isSelected && (
+                        <Badge className="absolute -top-2 -right-2 bg-blue-500 text-[10px]">
+                          Active
+                        </Badge>
+                      )}
+                      <div className={`w-8 h-8 rounded-lg bg-gradient-to-br ${provider.color} flex items-center justify-center mb-2`}>
+                        <Icon className="w-4 h-4 text-white" />
+                      </div>
+                      <div className="text-sm font-medium text-white">{provider.name}</div>
+                      <div className="text-xs text-white/40">{provider.desc}</div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Model Selection */}
+            <div>
+              <label className="text-sm text-white/60 mb-2 block">Model</label>
+              <select
+                value={selectedModel}
+                onChange={(e) => setSelectedModel(e.target.value)}
+                className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white focus:border-blue-500/50 focus:outline-none"
+              >
+                {PROVIDER_MODELS[selectedProvider]?.map((model) => (
+                  <option key={model.id} value={model.id} className="bg-[#0a0a0f]">
+                    {model.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Provider URL for Jan */}
+            {selectedProvider === 'jan' && (
+              <div>
+                <label className="text-sm text-white/60 mb-1 block">Jan.ai URL</label>
+                <Input
+                  value={process.env.NEXT_PUBLIC_JAN_URL || 'http://localhost:1337/v1/chat/completions'}
+                  readOnly
+                  className="bg-white/5"
+                />
+                <p className="text-xs text-white/40 mt-1">
+                  Make sure Jan.ai is running with API mode enabled
+                </p>
+              </div>
+            )}
+
+            {/* API Key Status */}
+            <div className="p-4 rounded-xl glass">
+              <div className="flex items-center gap-2 mb-2">
+                <Key className="w-4 h-4 text-white/60" />
+                <span className="text-sm text-white/60">Status</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className={`w-2 h-2 rounded-full ${
+                  selectedProvider === 'jan' ? 'bg-green-500' : 
+                  selectedProvider === 'groq' ? 'bg-green-500' : 'bg-yellow-500'
+                }`} />
+                <span className="text-sm text-white">
+                  {selectedProvider === 'jan' ? 'Local (no key needed)' : 
+                   selectedProvider === 'groq' ? 'Configured' : 'Add API key in .env'}
+                </span>
+              </div>
+            </div>
+
+            <Button onClick={handleSaveProvider} disabled={savingProvider} variant="secondary" className="w-full">
+              {savingProvider ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              {savingProvider ? 'Testing...' : 'Test Connection'}
+            </Button>
+          </div>
+        </motion.section>
+
+        {/* Rest of the settings sections remain unchanged */}
         {/* User Profile / Subscription */}
         <motion.section
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
           className="p-6 rounded-2xl glass"
         >
           <div className="flex items-center gap-3 mb-6">
@@ -178,52 +357,6 @@ export default function SettingsPage() {
               <h2 className="text-lg font-semibold text-white">Your Plan</h2>
               <p className="text-xs text-white/40">Manage subscription and usage</p>
             </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            {PLANS.map((plan) => {
-              const isCurrent = plan.id === userTier;
-              const Icon = plan.id === 'free' ? Check : plan.id === 'starter' ? Zap : plan.id === 'pro' ? Rocket : Crown;
-              return (
-                <div
-                  key={plan.id}
-                  className={`relative p-4 rounded-xl border transition-all ${
-                    plan.popular
-                      ? 'border-purple-500/50 bg-purple-500/5'
-                      : isCurrent
-                      ? 'border-blue-500/50 bg-blue-500/10'
-                      : 'border-white/10 glass hover:border-white/20'
-                  }`}
-                >
-                  {plan.popular && (
-                    <Badge className="absolute -top-2 -right-2 bg-purple-500 text-[10px]">
-                      Popular
-                    </Badge>
-                  )}
-                  {isCurrent && (
-                    <Badge className="absolute -top-2 -right-2 bg-blue-500 text-[10px]">
-                      Current
-                    </Badge>
-                  )}
-                  <div className="flex items-center gap-2 mb-2">
-                    <Icon className={`w-4 h-4 ${plan.popular ? 'text-purple-400' : 'text-white/60'}`} />
-                    <span className="text-sm font-medium text-white">{plan.name}</span>
-                  </div>
-                  <div className="mb-3">
-                    <span className="text-xl font-bold text-white">${plan.price}</span>
-                    <span className="text-xs text-white/40">/{plan.period}</span>
-                  </div>
-                  <div className="space-y-1">
-                    {plan.features.slice(0, 3).map((feature) => (
-                      <div key={feature} className="flex items-center gap-1.5 text-xs text-white/50">
-                        <Check className="w-3 h-3 text-green-400" />
-                        {feature}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
           </div>
 
           <div className="mt-6 p-4 rounded-xl glass">
@@ -260,7 +393,7 @@ export default function SettingsPage() {
         <motion.section
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
+          transition={{ delay: 0.2 }}
           className="p-6 rounded-2xl glass"
         >
           <div className="flex items-center gap-3 mb-6">
@@ -301,7 +434,7 @@ export default function SettingsPage() {
         <motion.section
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
+          transition={{ delay: 0.3 }}
           className="p-6 rounded-2xl glass"
         >
           <div className="flex items-center gap-3 mb-6">
@@ -342,7 +475,7 @@ export default function SettingsPage() {
         <motion.section
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
+          transition={{ delay: 0.4 }}
           className="p-6 rounded-2xl glass"
         >
           <div className="flex items-center gap-3 mb-6">
