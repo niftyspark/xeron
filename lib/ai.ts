@@ -6,7 +6,7 @@ const JAN_API_URL = 'http://localhost:1337/v1/chat/completions';
 
 export type AIProvider = 'groq' | 'openai' | 'cloudflare' | 'huggingface' | 'openrouter' | 'jan';
 
-interface Message {
+export interface ChatMessage {
   role: string;
   content: string;
 }
