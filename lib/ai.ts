@@ -251,3 +251,24 @@ export async function getRelevantMemories(userId: string, _query: string, limit 
 export async function extractMemories(userId: string, conversationId: string, messages: Message[]) {
   console.log('[extractMemories] skipped in dev mode');
 }
+
+export function mapModelForProvider(model: string, provider: AIProvider): string {
+  const models = getProviderModels(provider);
+  if (models[model]) return models[model];
+
+  // Fallback logic for cross-provider model requests
+  if (provider === 'groq') {
+    if (model.includes('llama-3.3')) return 'llama-3.3-70b-versatile';
+    if (model.includes('llama-3.1-70b')) return 'llama-3.1-70b-versatile';
+    if (model.includes('llama-3.1-8b')) return 'llama-3.1-8b-instant';
+    return 'llama-3.3-70b-versatile';
+  }
+
+  if (provider === 'openai') {
+    if (model.includes('gpt-4o-mini')) return 'gpt-4o-mini';
+    if (model.includes('gpt-4o')) return 'gpt-4o';
+    return 'gpt-4o-mini';
+  }
+
+  return getDefaultModel(provider);
+}
